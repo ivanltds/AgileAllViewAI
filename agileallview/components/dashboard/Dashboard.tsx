@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { SyncProgress } from "@/components/ui/SyncProgress";
 import { OverviewTab }  from "./tabs/OverviewTab";
 import { BacklogTab }   from "./tabs/BacklogTab";
@@ -17,19 +17,38 @@ const TABS = [
 ];
 
 const FILTER_PRESETS = [
-  { label: "2 sprints", value: "2s" },
-  { label: "4 sprints", value: "4s" },
   { label: "3 meses",   value: "3m" },
   { label: "6 meses",   value: "6m" },
   { label: "1 ano",     value: "1y" },
 ];
 
-export function Dashboard({ team, allTeams, pat, filter, onFilter, tab, onTab, onSyncDone }: {
+export function Dashboard({
+  team,
+  allTeams,
+  pat,
+  periodPreset,
+  onPeriodPreset,
+  selectedSprintIds,
+  onSelectedSprintIds,
+  dateFrom,
+  onDateFrom,
+  dateTo,
+  onDateTo,
+  tab,
+  onTab,
+  onSyncDone,
+}: {
   team: TeamDto;
   allTeams: TeamDto[];
   pat: React.RefObject<string | null>;
-  filter: string;
-  onFilter: (f: string) => void;
+  periodPreset: string;
+  onPeriodPreset: (p: string) => void;
+  selectedSprintIds: string[];
+  onSelectedSprintIds: (ids: string[]) => void;
+  dateFrom: string;
+  onDateFrom: (v: string) => void;
+  dateTo: string;
+  onDateTo: (v: string) => void;
   tab: string;
   onTab: (t: string) => void;
   onSyncDone: () => Promise<void>;
@@ -39,16 +58,24 @@ export function Dashboard({ team, allTeams, pat, filter, onFilter, tab, onTab, o
   const [syncing, setSyncing] = useState(false);
   const [syncProg, setSyncProg] = useState<{ msg: string; pct: number } | null>(null);
   const [syncError, setSyncError] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo,   setDateTo]   = useState("");
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (filter.endsWith("s"))     params.set("sprints", filter.replace("s", ""));
-      else if (filter.endsWith("m")) params.set("sprints", String(Math.ceil(parseInt(filter)*2)));
-      else if (filter.endsWith("y")) params.set("sprints", "26");
+      if (selectedSprintIds.length) {
+        params.set("sprintIds", selectedSprintIds.join(","));
+      } else if (periodPreset === "3m" || periodPreset === "6m" || periodPreset === "1y") {
+        const months = periodPreset === "3m" ? 3 : periodPreset === "6m" ? 6 : 12;
+        const now = new Date();
+        const from = new Date(now);
+        from.setMonth(from.getMonth() - months);
+        params.set("from", from.toISOString().slice(0, 10));
+        params.set("to", now.toISOString().slice(0, 10));
+      } else {
+        params.set("sprints", "4");
+      }
+
       if (dateFrom) params.set("from", dateFrom);
       if (dateTo)   params.set("to",   dateTo);
 
@@ -57,7 +84,7 @@ export function Dashboard({ team, allTeams, pat, filter, onFilter, tab, onTab, o
     } finally {
       setLoading(false);
     }
-  }, [team.id, filter, dateFrom, dateTo]);
+  }, [team.id, selectedSprintIds, periodPreset, dateFrom, dateTo]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -101,6 +128,7 @@ export function Dashboard({ team, allTeams, pat, filter, onFilter, tab, onTab, o
 
   const sprintMetrics = (data?.sprintMetrics as unknown[]) ?? [];
   const hasSyncState  = team.syncState?.lastSync;
+  const availableSprints = ((data as any)?.availableSprints as any[] | undefined) ?? [];
 
   return (
     <main className="flex-1 px-5 py-5 max-w-[1600px] mx-auto w-full">
@@ -150,20 +178,63 @@ export function Dashboard({ team, allTeams, pat, filter, onFilter, tab, onTab, o
         <FilterIcon />
         <span className="text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide">Período</span>
         <div className="w-px h-4 bg-[var(--border)]" />
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-[10px] text-[var(--text3)]">Sprints:</span>
+          <div className="flex gap-1.5 flex-wrap">
+            {availableSprints.map((s) => {
+              const id = String((s as any).id);
+              const name = String((s as any).name ?? "?");
+              const active = selectedSprintIds.includes(id);
+              return (
+                <button
+                  key={id}
+                  onClick={() => {
+                    onPeriodPreset("sprints");
+                    onDateFrom("");
+                    onDateTo("");
+                    onSelectedSprintIds(active
+                      ? selectedSprintIds.filter((x: string) => x !== id)
+                      : [...selectedSprintIds, id]
+                    );
+                  }}
+                  className={`px-2.5 py-1 rounded text-xs transition-all ${active ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}
+                  title={name}
+                >
+                  {name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="w-px h-4 bg-[var(--border)]" />
         <div className="flex gap-1.5 flex-wrap">
           {FILTER_PRESETS.map((p) => (
-            <button key={p.value} onClick={() => onFilter(p.value)}
-              className={`px-2.5 py-1 rounded text-xs transition-all ${filter === p.value ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}>
+            <button
+              key={p.value}
+              onClick={() => {
+                onSelectedSprintIds([]);
+                onPeriodPreset(p.value);
+                onDateFrom("");
+                onDateTo("");
+              }}
+              className={`px-2.5 py-1 rounded text-xs transition-all ${periodPreset === p.value ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}
+            >
               {p.label}
             </button>
           ))}
         </div>
+        <button
+          onClick={() => { onSelectedSprintIds([]); onPeriodPreset("sprints"); onDateFrom(""); onDateTo(""); }}
+          className="ml-auto px-2.5 py-1 rounded text-xs transition-all bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+        >
+          Limpar
+        </button>
         <div className="w-px h-4 bg-[var(--border)]" />
         <span className="text-[10px] text-[var(--text3)]">De:</span>
-        <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); onFilter("custom"); }}
+        <input type="date" value={dateFrom} onChange={(e) => { onDateFrom(e.target.value); onSelectedSprintIds([]); onPeriodPreset("custom"); }}
           className="bg-[var(--bg3)] border border-[var(--border)] rounded text-xs px-2 py-1 text-[var(--text)] outline-none focus:border-[var(--accent)]" />
         <span className="text-[10px] text-[var(--text3)]">Até:</span>
-        <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); onFilter("custom"); }}
+        <input type="date" value={dateTo} onChange={(e) => { onDateTo(e.target.value); onSelectedSprintIds([]); onPeriodPreset("custom"); }}
           className="bg-[var(--bg3)] border border-[var(--border)] rounded text-xs px-2 py-1 text-[var(--text)] outline-none focus:border-[var(--accent)]" />
       </div>
 

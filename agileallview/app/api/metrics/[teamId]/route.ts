@@ -24,6 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
   const { teamId } = params;
   const url = new URL(req.url);
   const sprintsFilter  = parseInt(url.searchParams.get("sprints") ?? "4");
+  const sprintIdsParam = url.searchParams.get("sprintIds");
   const dateFrom       = url.searchParams.get("from");
   const dateTo         = url.searchParams.get("to");
 
@@ -31,10 +32,23 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
   if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
 
   // All sprints for this team
-  let sprints = iterationsRepo.byTeam(teamId);
+  const allSprints = iterationsRepo.byTeam(teamId);
+  const availableSprints = allSprints
+    .filter((s) => s.time_frame !== "future")
+    .slice(-4);
+
+  let sprints = allSprints;
 
   // Apply filter
-  if (dateFrom || dateTo) {
+  if (sprintIdsParam) {
+    const selectedIds = new Set(
+      sprintIdsParam
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    );
+    sprints = sprints.filter((s) => selectedIds.has(s.id));
+  } else if (dateFrom || dateTo) {
     sprints = sprints.filter((s) => {
       const d = new Date(s.start_date || s.finish_date || 0);
       if (dateFrom && d < new Date(dateFrom)) return false;
@@ -42,7 +56,9 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
       return true;
     });
   } else {
-    sprints = sprints.slice(-sprintsFilter);
+    // Avoid returning only future iterations (usually have no PBIs yet)
+    const nonFuture = sprints.filter((s) => s.time_frame !== "future");
+    sprints = (nonFuture.length ? nonFuture : sprints).slice(-sprintsFilter);
   }
 
   const sprintNames = new Set(sprints.map((s) => s.name));
@@ -78,7 +94,13 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
   const allSprintsForMetrics = iterationsRepo.byTeam(teamId);
   const allWIsForMetrics     = workItemsRepo.byTeam(teamId);
   const ltCycleMap = new Map(
-    allMetrics.map((m) => [m.work_item_id, { leadTime: m.lead_time, cycleTime: m.cycle_time }])
+    allMetrics.map((m) => [
+      m.work_item_id,
+      {
+        leadTime:  m.lead_time ?? null,
+        cycleTime: m.cycle_time ?? null,
+      },
+    ])
   );
 
   const sprintMetrics = sprints.map((s) =>
@@ -98,6 +120,8 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
         daysOff:    JSON.parse(c.days_off    || "[]"),
         totalCapacity: c.total_capacity,
         realCapacity:  c.real_capacity,
+        workingDays: 0,
+        dayOffCount: 0,
       })),
       currentSprint.start_date,
       currentSprint.finish_date
@@ -110,6 +134,7 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
 
   return NextResponse.json({
     team: { id: team.id, name: team.name, org: team.org, project: team.project, teamName: team.team_name },
+    availableSprints,
     sprints,
     workItems: workItemDtos,
     sprintMetrics,

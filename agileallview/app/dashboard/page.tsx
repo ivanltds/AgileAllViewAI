@@ -20,7 +20,10 @@ export default function DashboardPage() {
   // ── Teams ─────────────────────────────────────────────────────────
   const [teams, setTeams] = useState<TeamDto[]>([]);
   const [currentTeam, setCurrentTeam] = useState<TeamDto | null>(null);
-  const [filter, setFilter] = useState<string>("4s");
+  const [periodPreset, setPeriodPreset] = useState<string>("sprints");
+  const [selectedSprintIds, setSelectedSprintIds] = useState<string[]>([]);
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
   const [tab, setTab] = useState<string>("overview");
 
   // Clear PAT on tab close
@@ -92,8 +95,14 @@ export default function DashboardPage() {
           team={currentTeam}
           allTeams={teams}
           pat={patRef}
-          filter={filter}
-          onFilter={setFilter}
+          periodPreset={periodPreset}
+          onPeriodPreset={setPeriodPreset}
+          selectedSprintIds={selectedSprintIds}
+          onSelectedSprintIds={setSelectedSprintIds}
+          dateFrom={dateFrom}
+          onDateFrom={setDateFrom}
+          dateTo={dateTo}
+          onDateTo={setDateTo}
           tab={tab}
           onTab={setTab}
           onSyncDone={loadTeams}
