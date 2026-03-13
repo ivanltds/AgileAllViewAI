@@ -65,6 +65,8 @@ export function Dashboard({
     !dateFrom &&
     !dateTo;
 
+  const showPeriodFilters = tab !== "capacity" && tab !== "simulation";
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -200,91 +202,103 @@ export function Dashboard({
       )}
 
       {/* Filters */}
-      <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl px-4 py-3 mb-5 flex flex-wrap gap-3 items-center">
-        <FilterIcon />
-        <span className="text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide">Período</span>
-        <div className="w-px h-4 bg-[var(--border)]" />
-        <div className="flex flex-wrap gap-2 items-center">
-          <span className="text-[10px] text-[var(--text3)]">Sprints:</span>
-          <div className="flex gap-1.5 flex-wrap">
-            {availableSprints.map((s) => {
-              const id = String((s as any).id);
-              const name = String((s as any).name ?? "?");
-              const active = selectedSprintIds.includes(id);
-              const frame = String((s as any).time_frame ?? "past");
-              const isCurrent = frame === "current";
-              const isFuture = frame === "future";
-              const isNext = isFuture && nextFutureId === id;
+      {showPeriodFilters && (
+        <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl px-4 py-3 mb-5 flex flex-wrap gap-3 items-center">
+          <FilterIcon />
+          <span className="text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide">Período</span>
+          <div className="w-px h-4 bg-[var(--border)]" />
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-[10px] text-[var(--text3)]">Sprints:</span>
+            <div className="flex gap-1.5 flex-wrap">
+              {availableSprints.map((s) => {
+                const id = String((s as any).id);
+                const name = String((s as any).name ?? "?");
+                const active = selectedSprintIds.includes(id);
+                const frame = String((s as any).time_frame ?? "past");
+                const isCurrent = frame === "current";
+                const isFuture = frame === "future";
+                const isNext = isFuture && nextFutureId === id;
 
-              const baseInactive = "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]";
-              const currentInactive = "bg-[rgba(14,165,233,.08)] border border-[rgba(14,165,233,.25)] text-[var(--text2)] hover:border-[var(--accent)]";
-              const nextInactive = "bg-[rgba(139,92,246,.08)] border border-[rgba(139,92,246,.25)] text-[var(--text2)] hover:border-[var(--purple)]";
-              const futureInactive = "bg-[rgba(148,163,184,.06)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--border2)]";
-              const inactiveClass = isCurrent
-                ? currentInactive
-                : isNext
-                  ? nextInactive
-                  : isFuture
-                    ? futureInactive
-                    : baseInactive;
+                const baseInactive = "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]";
+                const currentInactive = "bg-[rgba(14,165,233,.08)] border border-[rgba(14,165,233,.25)] text-[var(--text2)] hover:border-[var(--accent)]";
+                const nextInactive = "bg-[rgba(139,92,246,.08)] border border-[rgba(139,92,246,.25)] text-[var(--text2)] hover:border-[var(--purple)]";
+                const futureInactive = "bg-[rgba(148,163,184,.06)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--border2)]";
+                const inactiveClass = isCurrent
+                  ? currentInactive
+                  : isNext
+                    ? nextInactive
+                    : isFuture
+                      ? futureInactive
+                      : baseInactive;
 
-              return (
-                <button
-                  key={id}
-                  onClick={() => {
-                    onPeriodPreset("sprints");
-                    onDateFrom("");
-                    onDateTo("");
-                    onSelectedSprintIds(active
-                      ? selectedSprintIds.filter((x: string) => x !== id)
-                      : [...selectedSprintIds, id]
-                    );
-                  }}
-                  className={`px-2.5 py-1 rounded text-xs transition-all ${active ? "bg-[rgba(14,165,233,.12)] border border-[var(--accent)] text-[var(--accent)]" : inactiveClass}`}
-                  title={name}
-                >
-                  {name}
-                </button>
-              );
-            })}
+                return (
+                  <button
+                    key={id}
+                    onClick={() => {
+                      onPeriodPreset("sprints");
+                      onDateFrom("");
+                      onDateTo("");
+                      onSelectedSprintIds(active
+                        ? selectedSprintIds.filter((x: string) => x !== id)
+                        : [...selectedSprintIds, id]
+                      );
+                    }}
+                    className={`px-2.5 py-1 rounded text-xs transition-all ${active ? "bg-[rgba(14,165,233,.12)] border border-[var(--accent)] text-[var(--accent)]" : inactiveClass}`}
+                    title={name}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
           </div>
+          <div className="w-px h-4 bg-[var(--border)]" />
+          <div className="flex gap-1.5 flex-wrap">
+            {FILTER_PRESETS.map((p) => (
+              <button
+                key={p.value}
+                onClick={() => {
+                  onSelectedSprintIds([]);
+                  onPeriodPreset(p.value);
+                  onDateFrom("");
+                  onDateTo("");
+                }}
+                className={`px-2.5 py-1 rounded text-xs transition-all ${periodPreset === p.value ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => { onSelectedSprintIds([]); onPeriodPreset("sprints"); onDateFrom(""); onDateTo(""); }}
+            className="ml-auto px-2.5 py-1 rounded text-xs transition-all bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+          >
+            Limpar
+          </button>
+          <div className="w-px h-4 bg-[var(--border)]" />
+          <span className="text-[10px] text-[var(--text3)]">De:</span>
+          <input type="date" value={dateFrom} onChange={(e) => { onDateFrom(e.target.value); onSelectedSprintIds([]); onPeriodPreset("custom"); }}
+            className="bg-[var(--bg3)] border border-[var(--border)] rounded text-xs px-2 py-1 text-[var(--text)] outline-none focus:border-[var(--accent)]" />
+          <span className="text-[10px] text-[var(--text3)]">Até:</span>
+          <input type="date" value={dateTo} onChange={(e) => { onDateTo(e.target.value); onSelectedSprintIds([]); onPeriodPreset("custom"); }}
+            className="bg-[var(--bg3)] border border-[var(--border)] rounded text-xs px-2 py-1 text-[var(--text)] outline-none focus:border-[var(--accent)]" />
         </div>
-        <div className="w-px h-4 bg-[var(--border)]" />
-        <div className="flex gap-1.5 flex-wrap">
-          {FILTER_PRESETS.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => {
-                onSelectedSprintIds([]);
-                onPeriodPreset(p.value);
-                onDateFrom("");
-                onDateTo("");
-              }}
-              className={`px-2.5 py-1 rounded text-xs transition-all ${periodPreset === p.value ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <button
-          onClick={() => { onSelectedSprintIds([]); onPeriodPreset("sprints"); onDateFrom(""); onDateTo(""); }}
-          className="ml-auto px-2.5 py-1 rounded text-xs transition-all bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
-        >
-          Limpar
-        </button>
-        <div className="w-px h-4 bg-[var(--border)]" />
-        <span className="text-[10px] text-[var(--text3)]">De:</span>
-        <input type="date" value={dateFrom} onChange={(e) => { onDateFrom(e.target.value); onSelectedSprintIds([]); onPeriodPreset("custom"); }}
-          className="bg-[var(--bg3)] border border-[var(--border)] rounded text-xs px-2 py-1 text-[var(--text)] outline-none focus:border-[var(--accent)]" />
-        <span className="text-[10px] text-[var(--text3)]">Até:</span>
-        <input type="date" value={dateTo} onChange={(e) => { onDateTo(e.target.value); onSelectedSprintIds([]); onPeriodPreset("custom"); }}
-          className="bg-[var(--bg3)] border border-[var(--border)] rounded text-xs px-2 py-1 text-[var(--text)] outline-none focus:border-[var(--accent)]" />
-      </div>
+      )}
 
       {/* Tab bar */}
       <div className="flex gap-1 mb-5">
         {TABS.map((t) => (
-          <button key={t.id} onClick={() => onTab(t.id)}
+          <button
+            key={t.id}
+            onClick={() => {
+              onTab(t.id);
+              if (t.id === "capacity" || t.id === "simulation") {
+                onSelectedSprintIds([]);
+                onPeriodPreset("sprints");
+                onDateFrom("");
+                onDateTo("");
+              }
+            }}
             className={`px-3.5 py-1.5 text-sm font-medium rounded-md transition-all ${tab === t.id ? "bg-[rgba(14,165,233,.1)] text-[var(--accent)]" : "text-[var(--text2)] hover:text-[var(--text)] hover:bg-[var(--bg3)]"}`}>
             {t.label}
           </button>
