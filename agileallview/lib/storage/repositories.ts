@@ -72,12 +72,12 @@ export const workItemsRepo = {
         id, team_id, title, state, work_item_type, created_date, changed_date,
         closed_date, assigned_to, iteration_path, iteration_name, area_path,
         effort, activity, bloqueio, tipo_bloqueio, motivo_bloqueio, produto,
-        tecnologia, number_mti
+        tecnologia, number_mti, dor_checklist, dod_checklist
       ) VALUES (
         @id, @team_id, @title, @state, @work_item_type, @created_date, @changed_date,
         @closed_date, @assigned_to, @iteration_path, @iteration_name, @area_path,
         @effort, @activity, @bloqueio, @tipo_bloqueio, @motivo_bloqueio, @produto,
-        @tecnologia, @number_mti
+        @tecnologia, @number_mti, @dor_checklist, @dod_checklist
       ) ON CONFLICT(id) DO UPDATE SET
         state=excluded.state, changed_date=excluded.changed_date,
         assigned_to=excluded.assigned_to, iteration_path=excluded.iteration_path,

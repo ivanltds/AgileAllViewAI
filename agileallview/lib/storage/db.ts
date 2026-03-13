@@ -27,5 +27,15 @@ export function getDb(): Database.Database {
   const schema = fs.readFileSync(SCHEMA_PATH, "utf8");
   _db.exec(schema);
 
+  // Best-effort schema upgrades for existing DBs
+  ensureColumn(_db, "work_items", "dor_checklist", "TEXT");
+  ensureColumn(_db, "work_items", "dod_checklist", "TEXT");
+
   return _db;
+}
+
+function ensureColumn(db: Database.Database, table: string, column: string, type: string) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (cols.some((c) => c.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
 }

@@ -45,6 +45,8 @@ export interface WorkItem {
   produto?: string | null;
   tecnologia?: string | null;
   number_mti?: string | null;
+  dor_checklist?: string | null;
+  dod_checklist?: string | null;
   fetched_at?: string;
 }
 

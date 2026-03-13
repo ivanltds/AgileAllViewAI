@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS work_items (
   produto         TEXT,
   tecnologia      TEXT,
   number_mti      TEXT,
+  dor_checklist   TEXT,
+  dod_checklist   TEXT,
   fetched_at      TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_wi_team    ON work_items(team_id);

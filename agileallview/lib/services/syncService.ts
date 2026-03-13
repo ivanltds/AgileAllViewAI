@@ -23,16 +23,38 @@ import type { Team, Revision, CapacityRow, Metric } from "../types";
 
 const MAX_CONCURRENT_REVISIONS = 5;
 
-const PBI_FIELDS = [
+const PBI_CORE_FIELDS = [
   "System.Id", "System.Title", "System.State", "System.WorkItemType",
   "System.CreatedDate", "System.ChangedDate", "System.AssignedTo",
   "System.IterationPath", "System.AreaPath",
   "Microsoft.VSTS.Common.ClosedDate",
   "Microsoft.VSTS.Scheduling.Effort",
   "Microsoft.VSTS.Common.Activity",
-  // Custom fields — adjust names to match your process
-  "Custom.Bloqueio", "Custom.TipoDoBloqueio", "Custom.MotivoDoBloqueio",
-  "Custom.Produto", "Custom.Tecnologia", "Custom.NumberMTI",
+];
+
+// Optional fields: may not exist in every organisation/process. We will try them
+// and fall back to core fields on error.
+const PBI_OPTIONAL_FIELDS = [
+  // Legacy custom fields
+  "Custom.Block",
+  "Custom.TipoDoBloqueio",
+  "Custom.Bloqueio",
+  "Custom.MotivoDoBloqueio",
+  "Custom.Produto",
+  "Custom.Tecnologia",
+  "Custom.NumberMTI",
+  // DoR / DoD checklists (store raw text for now)
+  "Custom.DoR",
+  "Custom.DOR",
+  "Custom.DoD",
+  "Custom.DOD",
+  "Custom.DefinitionOfReady",
+  "Custom.DefinitionOfDone",
+];
+
+const DEFAULT_PBI_WORK_ITEM_TYPES = [
+  "Product Backlog Item",
+  "User Story",
 ];
 
 const TASK_FIELDS = [
@@ -61,7 +83,7 @@ export async function syncTeam(
       id: it.id,
       team_id: team.id,
       name: it.name,
-      path: it.path ?? null,
+      path: it.path ?? undefined,
       start_date: it.attributes?.startDate ?? null,
       finish_date: it.attributes?.finishDate ?? null,
       time_frame: it.attributes?.timeFrame ?? "past",
@@ -88,6 +110,8 @@ export async function syncTeam(
           daysOff: c.daysOff ?? [],
           totalCapacity: 0,
           realCapacity: 0,
+          workingDays: 0,
+          dayOffCount: 0,
         })),
         sprint.start_date,
         sprint.finish_date
@@ -112,18 +136,11 @@ export async function syncTeam(
     const lastSync  = syncState?.last_sync ?? null;
     const dateFilter = lastSync ? `AND [System.ChangedDate] >= '${lastSync}'` : "";
 
-    const wiqlQuery = `
-      SELECT [System.Id] FROM WorkItems
-      WHERE [System.TeamProject] = '${team.project}'
-        AND [System.WorkItemType] = 'Product Backlog Item'
-        ${dateFilter}
-      ORDER BY [System.ChangedDate] DESC
-    `;
-    const pbiIds = await api.wiql(team.org, team.project, wiqlQuery);
+    const pbiIds = await wiqlPbiIdsWithFallback(api, team.org, team.project, dateFilter);
 
     // ── 5. Work item details ──────────────────────────────────────
     prog("workitems", `Buscando detalhes de ${pbiIds.length} PBIs...`, 25);
-    const rawItems = await api.getWorkItemsBatch(team.org, pbiIds, PBI_FIELDS);
+    const rawItems = await getWorkItemsBatchWithFallback(api, team.org, pbiIds);
 
     workItemsRepo.upsertBulk(rawItems.map((wi) => ({
       id: wi.id,
@@ -140,12 +157,23 @@ export async function syncTeam(
       area_path:      str(wi.fields["System.AreaPath"]),
       effort:         num(wi.fields["Microsoft.VSTS.Scheduling.Effort"]),
       activity:       str(wi.fields["Microsoft.VSTS.Common.Activity"]),
-      bloqueio:       bool(wi.fields["Custom.Bloqueio"]) ? 1 : 0,
-      tipo_bloqueio:  str(wi.fields["Custom.TipoDoBloqueio"]) ?? null,
-      motivo_bloqueio: str(wi.fields["Custom.MotivoDoBloqueio"]) ?? null,
-      produto:        str(wi.fields["Custom.Produto"]) ?? null,
-      tecnologia:     str(wi.fields["Custom.Tecnologia"]) ?? null,
-      number_mti:     str(wi.fields["Custom.NumberMTI"]) ?? null,
+      bloqueio:       firstBoolField(wi.fields, ["Custom.Block", "Custom.Bloqueio"]) ? 1 : 0,
+      tipo_bloqueio:  firstTextField(wi.fields, ["Custom.TipoDoBloqueio"]) ?? null,
+      motivo_bloqueio: firstTextField(wi.fields, ["Custom.MotivoDoBloqueio"]) ?? null,
+      produto:        firstTextField(wi.fields, ["Custom.Produto"]) ?? null,
+      tecnologia:     firstTextField(wi.fields, ["Custom.Tecnologia"]) ?? null,
+      number_mti:     firstTextField(wi.fields, ["Custom.NumberMTI"]) ?? null,
+      dor_checklist:  firstTextField(wi.fields, [
+        "Custom.DoR",
+        "Custom.DOR",
+        "Custom.DefinitionOfReady",
+      ]),
+      dod_checklist:  firstTextField(wi.fields, [
+        "Custom.DoD",
+        "Custom.DOD",
+        "Custom.DefinitionOfDone",
+      ]),
+
     })));
 
     // ── 6. Revisions (throttled) ──────────────────────────────────
@@ -298,4 +326,71 @@ function lastSegment(path?: string): string {
   if (!path) return "—";
   const parts = path.split("\\");
   return parts[parts.length - 1];
+}
+
+async function wiqlPbiIdsWithFallback(
+  api: AzureConnector,
+  org: string,
+  project: string,
+  dateFilter: string
+): Promise<number[]> {
+  for (const typeName of DEFAULT_PBI_WORK_ITEM_TYPES) {
+    const wiqlQuery = `
+      SELECT [System.Id] FROM WorkItems
+      WHERE [System.TeamProject] = '${project}'
+        AND [System.WorkItemType] = '${typeName}'
+        ${dateFilter}
+      ORDER BY [System.ChangedDate] DESC
+    `;
+
+    try {
+      const ids = await api.wiql(org, project, wiqlQuery);
+      if (ids.length) return ids;
+    } catch (e) {
+      console.warn(`WIQL failed for work item type '${typeName}':`, e);
+    }
+  }
+
+  // Last attempt: keep previous behaviour for visibility (may throw)
+  const lastWiql = `
+    SELECT [System.Id] FROM WorkItems
+    WHERE [System.TeamProject] = '${project}'
+      AND [System.WorkItemType] = 'Product Backlog Item'
+      ${dateFilter}
+    ORDER BY [System.ChangedDate] DESC
+  `;
+  return await api.wiql(org, project, lastWiql);
+}
+
+async function getWorkItemsBatchWithFallback(
+  api: AzureConnector,
+  org: string,
+  ids: number[]
+) {
+  try {
+    return await api.getWorkItemsBatch(org, ids, [...PBI_CORE_FIELDS, ...PBI_OPTIONAL_FIELDS]);
+  } catch (e) {
+    console.warn("getWorkItemsBatch failed with optional fields; retrying with core fields only:", e);
+    return await api.getWorkItemsBatch(org, ids, PBI_CORE_FIELDS);
+  }
+}
+
+function firstTextField(fields: Record<string, unknown>, keys: string[]): string | null {
+  for (const k of keys) {
+    const v = fields[k];
+    const s = str(v);
+    if (s && s.trim()) return s;
+  }
+  return null;
+}
+
+function firstBoolField(fields: Record<string, unknown>, keys: string[]): boolean {
+  for (const k of keys) {
+    const v = fields[k];
+    if (v == null) continue;
+    if (bool(v)) return true;
+    if (typeof v === "number" && v === 0) return false;
+    if (typeof v === "string" && v.trim() === "0") return false;
+  }
+  return false;
 }
