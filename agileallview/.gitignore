@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+
+# Environment — NEVER commit tokens or secrets
+.env
+.env.local
+.env.*.local
+
+# SQLite database (contains cached data, not code)
+database/*.db
+database/*.db-shm
+database/*.db-wal
+
+# Debug
+npm-debug.log*
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# OS
+.DS_Store

@@ -1,0 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg:      #0d1117;
+    --bg2:     #161b22;
+    --bg3:     #21262d;
+    --bg4:     #30363d;
+    --border:  #30363d;
+    --border2: #484f58;
+    --text:    #e6edf3;
+    --text2:   #8b949e;
+    --text3:   #6e7681;
+    --accent:  #0ea5e9;
+    --success: #22c55e;
+    --warn:    #f59e0b;
+    --danger:  #ef4444;
+    --purple:  #8b5cf6;
+  }
+
+  html, body {
+    @apply bg-bg text-[var(--text)] font-sans;
+    font-size: 14px;
+  }
+
+  * { @apply box-border; }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border2); }
+
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.5);
+  }
+}
+
+@layer utilities {
+  .font-mono { font-family: 'IBM Plex Mono', monospace; }
+  .font-display { font-family: 'Space Grotesk', sans-serif; }
+
+  .animate-fade-up {
+    animation: fadeUp 0.2s ease forwards;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(5px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  .animate-spin-slow {
+    animation: spin 0.7s linear infinite;
+  }
+
+  /* Gradient border card */
+  .card-gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, var(--accent), #8b5cf6);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.25s;
+  }
+  .card-gradient-border:hover::before { opacity: 1; }
+}
