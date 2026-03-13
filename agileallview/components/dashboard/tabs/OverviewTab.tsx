@@ -45,6 +45,17 @@ function HelpButton({ onClick, isOpen }: { onClick: () => void; isOpen: boolean 
   );
 }
 
+function EmptyChart({ title, message }: { title: string; message?: string }) {
+  return (
+    <div className="h-[220px] flex items-center justify-center text-center px-6">
+      <div>
+        <div className="text-sm font-semibold mb-1">{title}</div>
+        <div className="text-[12px] text-[var(--text2)]">{message ?? "Sem dados no período selecionado."}</div>
+      </div>
+    </div>
+  );
+}
+
 const customTooltip = ({ active, payload, label }: any) => {
   if (!active || !Array.isArray(payload) || !payload.length) return null;
   return (
@@ -83,8 +94,15 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
   const completionRate = totalPlanned ? Math.round((totalCompleted / totalPlanned) * 100) : 0;
   const avgThrough     = sprintMetrics.length ? (sprintMetrics.reduce((s, x) => s + x.throughput, 0) / sprintMetrics.length).toFixed(1) : "—";
 
+  const hasSprintMetrics = sprintMetrics.length > 0;
+  const hasPlannedScope = totalPlanned > 0;
+  const hasThroughput = sprintMetrics.some((s: any) => Number(s.throughput ?? 0) > 0);
+
   const leadPctDays = useMemo(() => percentileValue(leadTimeValues, leadPct), [leadTimeValues, leadPct]);
   const cyclePctDays = useMemo(() => percentileValue(cycleTimeValues, cyclePct), [cycleTimeValues, cyclePct]);
+
+  const hasLeadDeliveries = leadTimeValues.length > 0 || leadTimeByDeliveryWeek.some((w) => (w.count ?? 0) > 0);
+  const hasCycleDeliveries = cycleTimeValues.length > 0 || cycleTimeByDeliveryWeek.some((w) => (w.count ?? 0) > 0);
 
   const leadByDeliveryWeekData = useMemo(() => {
     return leadTimeByDeliveryWeek.map((w) => ({
@@ -122,8 +140,8 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
       <div className="grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-3.5 mb-5">
         <KpiCard label="Lead Time Médio"   value={avgLead  != null ? `${avgLead.toFixed(1)}d`  : "—"} color="var(--accent)"  icon={<ClockIcon/>}  bg="rgba(14,165,233,.1)" />
         <KpiCard label="Cycle Time Médio"  value={avgCycle != null ? `${avgCycle.toFixed(1)}d` : "—"} color="var(--purple)" icon={<ZapIcon/>}    bg="rgba(139,92,246,.1)" />
-        <KpiCard label="Throughput/sprint" value={avgThrough}  color="var(--success)" icon={<ChartIcon/>}  bg="rgba(34,197,94,.1)"  />
-        <KpiCard label="Taxa de conclusão" value={`${completionRate}%`} color="var(--warn)"    icon={<TargetIcon/>} bg="rgba(245,158,11,.1)" />
+        <KpiCard label="Throughput/sprint" value={hasSprintMetrics && hasThroughput ? avgThrough : "—"}  color="var(--success)" icon={<ChartIcon/>}  bg="rgba(34,197,94,.1)"  />
+        <KpiCard label="Taxa de conclusão" value={hasSprintMetrics && hasPlannedScope ? `${completionRate}%` : "—"} color="var(--warn)"    icon={<TargetIcon/>} bg="rgba(245,158,11,.1)" />
         <KpiCard label="PBIs concluídos"   value={done.length}   color="var(--pink)"   icon={<CheckIcon/>}  bg="rgba(236,72,153,.1)" />
         <KpiCard label="PBIs analisados"   value={workItems.length} color="var(--text2)" icon={<GridIcon/>} />
       </div>
@@ -143,18 +161,24 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
               Extras = itens adicionados após o início do sprint e também concluídos dentro do período.
             </div>
           )}
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={plannedVsRealizedData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-              <Tooltip content={customTooltip as any} />
-              <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
-              <Bar dataKey="Planejado" stackId="a" fill="var(--text3)" />
-              <Bar dataKey="Concluido" stackId="b" fill="var(--success)" />
-              <Bar dataKey="Extras" stackId="b" fill="var(--warn)" />
-            </BarChart>
-          </ResponsiveContainer>
+          {hasSprintMetrics && hasPlannedScope ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={plannedVsRealizedData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                <Tooltip content={customTooltip as any} />
+                <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
+                <Bar dataKey="Planejado" stackId="a" fill="var(--text3)" />
+                <Bar dataKey="Concluido" stackId="b" fill="var(--success)" />
+                <Bar dataKey="Extras" stackId="b" fill="var(--warn)" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[240px]">
+              <EmptyChart title="Planejado vs Realizado" message="Sem dados de planejamento no período selecionado." />
+            </div>
+          )}
         </div>
 
         <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
@@ -170,16 +194,22 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
               Throughput é o total de itens entregues no sprint (concluídos do planejado + extras concluídos dentro do período).
             </div>
           )}
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={plannedVsRealizedData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-              <Tooltip content={customTooltip as any} />
-              <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
-              <Bar dataKey="Throughput" fill="var(--accent)" />
-            </BarChart>
-          </ResponsiveContainer>
+          {hasSprintMetrics && hasThroughput ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={plannedVsRealizedData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                <Tooltip content={customTooltip as any} />
+                <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
+                <Bar dataKey="Throughput" fill="var(--accent)" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[240px]">
+              <EmptyChart title="Throughput" message="Sem entregas no período selecionado." />
+            </div>
+          )}
         </div>
 
         <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
@@ -198,18 +228,22 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
           )}
           <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-4 items-stretch">
             <div>
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={leadByDeliveryWeekData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-                  <Tooltip content={customTooltip as any} />
-                  <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
-                  <Line type="monotone" dataKey="P50" stroke="var(--accent)" strokeWidth={2} dot={false} connectNulls />
-                  <Line type="monotone" dataKey="P85" stroke="var(--purple)" strokeWidth={2} dot={false} connectNulls />
-                  <Line type="monotone" dataKey="P95" stroke="var(--warn)" strokeWidth={2} dot={false} connectNulls />
-                </LineChart>
-              </ResponsiveContainer>
+              {hasLeadDeliveries ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={leadByDeliveryWeekData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                    <Tooltip content={customTooltip as any} />
+                    <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
+                    <Line type="monotone" dataKey="P50" stroke="var(--accent)" strokeWidth={2} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="P85" stroke="var(--purple)" strokeWidth={2} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="P95" stroke="var(--warn)" strokeWidth={2} dot={false} connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyChart title="Lead Time" />
+              )}
             </div>
             <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col">
               <div className="text-[11px] text-[var(--text3)] mb-2">Percentil</div>
@@ -228,6 +262,7 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
                   value={leadPct}
                   onChange={(e) => setLeadPct(parseInt(e.target.value))}
                   className="w-full"
+                  disabled={!hasLeadDeliveries}
                 />
                 <div className="flex justify-between text-[10px] text-[var(--text3)] mt-1">
                   <span>50%</span>
@@ -254,18 +289,22 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
           )}
           <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-4 items-stretch">
             <div>
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={cycleByDeliveryWeekData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-                  <Tooltip content={customTooltip as any} />
-                  <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
-                  <Line type="monotone" dataKey="P50" stroke="var(--accent)" strokeWidth={2} dot={false} connectNulls />
-                  <Line type="monotone" dataKey="P85" stroke="var(--purple)" strokeWidth={2} dot={false} connectNulls />
-                  <Line type="monotone" dataKey="P95" stroke="var(--warn)" strokeWidth={2} dot={false} connectNulls />
-                </LineChart>
-              </ResponsiveContainer>
+              {hasCycleDeliveries ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={cycleByDeliveryWeekData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                    <Tooltip content={customTooltip as any} />
+                    <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
+                    <Line type="monotone" dataKey="P50" stroke="var(--accent)" strokeWidth={2} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="P85" stroke="var(--purple)" strokeWidth={2} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="P95" stroke="var(--warn)" strokeWidth={2} dot={false} connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyChart title="Cycle Time" />
+              )}
             </div>
             <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col">
               <div className="text-[11px] text-[var(--text3)] mb-2">Percentil</div>
@@ -284,6 +323,7 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
                   value={cyclePct}
                   onChange={(e) => setCyclePct(parseInt(e.target.value))}
                   className="w-full"
+                  disabled={!hasCycleDeliveries}
                 />
                 <div className="flex justify-between text-[10px] text-[var(--text3)] mt-1">
                   <span>50%</span>
