@@ -10,11 +10,10 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import {
-  teamsRepo, iterationsRepo, workItemsRepo,
+  teamsRepo, iterationsRepo, workItemsRepo, revisionsRepo,
   metricsRepo, capacityRepo, tasksRepo,
 } from "@/lib/storage/repositories";
 import {
-  aggregateSprintMetrics,
   calcIndividualCapacity,
   calcCapacityWithDayOffs,
 } from "@/lib/analytics/engine";
@@ -90,22 +89,169 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
     };
   });
 
-  // Per-sprint aggregates
-  const allSprintsForMetrics = iterationsRepo.byTeam(teamId);
-  const allWIsForMetrics     = workItemsRepo.byTeam(teamId);
-  const ltCycleMap = new Map(
-    allMetrics.map((m) => [
-      m.work_item_id,
-      {
-        leadTime:  m.lead_time ?? null,
-        cycleTime: m.cycle_time ?? null,
-      },
-    ])
-  );
+  // Per-sprint aggregates (planned vs realized based on snapshot at sprint start/end)
+  const allWIsForMetrics = workItemsRepo.byTeam(teamId);
 
-  const sprintMetrics = sprints.map((s) =>
-    aggregateSprintMetrics(allWIsForMetrics, ltCycleMap, s)
-  );
+  const allRevs = revisionsRepo.byTeam(teamId);
+  const revsByWi = new Map<number, typeof allRevs>();
+  for (const r of allRevs) {
+    const arr = revsByWi.get(r.work_item_id) ?? [];
+    arr.push(r);
+    revsByWi.set(r.work_item_id, arr);
+  }
+
+  const wiById = new Map(allWIsForMetrics.map((w) => [w.id, w] as const));
+
+  const snapshotAt = (
+    wiId: number,
+    atIso: string
+  ): { state: string | null; iterationPath: string | null; effort: number | null } => {
+    const revs = revsByWi.get(wiId) ?? [];
+    const atT = new Date(atIso).getTime();
+    let last: any = null;
+    for (let i = 0; i < revs.length; i++) {
+      const t = new Date(revs[i].changed_date).getTime();
+      if (t <= atT) last = revs[i];
+      else break;
+    }
+
+    if (last) {
+      return {
+        state: (last.state ?? null) as string | null,
+        iterationPath: (last.iteration_path ?? null) as string | null,
+        effort: (last.effort ?? null) as number | null,
+      };
+    }
+
+    const wi = wiById.get(wiId);
+    return {
+      state: (wi?.state ?? null) as string | null,
+      iterationPath: (wi?.iteration_path ?? null) as string | null,
+      effort: (wi?.effort ?? null) as number | null,
+    };
+  };
+
+  const isInSprint = (iterationPath: string | null, sprint: Iteration): boolean => {
+    if (!iterationPath) return false;
+    if (sprint.path && iterationPath === sprint.path) return true;
+    return iterationPath.endsWith(`\\${sprint.name}`) || iterationPath === sprint.name;
+  };
+
+  const isClosedWithinSprint = (closedDateIso: string | null, sprint: Iteration): boolean => {
+    if (!closedDateIso || !sprint.start_date || !sprint.finish_date) return false;
+    const t = new Date(closedDateIso).getTime();
+    const startT = new Date(sprint.start_date).getTime();
+    const endT = new Date(sprint.finish_date).getTime();
+    return t >= startT && t <= endT;
+  };
+
+  const enteredSprintAfterStart = (wiId: number, sprint: Iteration): boolean => {
+    if (!sprint.start_date || !sprint.finish_date) return false;
+    const revs = revsByWi.get(wiId) ?? [];
+    if (!revs.length) return false;
+
+    const startT = new Date(sprint.start_date).getTime();
+    const endT = new Date(sprint.finish_date).getTime();
+
+    for (const r of revs) {
+      const t = new Date(r.changed_date).getTime();
+      if (t <= startT) continue;
+      if (t > endT) break;
+      if (isInSprint(r.iteration_path ?? null, sprint)) return true;
+    }
+    return false;
+  };
+
+  const avg = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null);
+
+  const sprintMetrics = sprints.map((s) => {
+    const start = s.start_date;
+    const end = s.finish_date;
+    if (!start || !end) {
+      return {
+        sprintId: s.id,
+        sprintName: s.name,
+        startDate: s.start_date,
+        finishDate: s.finish_date,
+        planned: 0,
+        completed: 0,
+        extraAdded: 0,
+        plannedEffort: 0,
+        completedEffort: 0,
+        extraEffort: 0,
+        carryOver: 0,
+        throughput: 0,
+        completionRate: 0,
+        avgLeadTime: null,
+        avgCycleTime: null,
+      };
+    }
+
+    const plannedIds: number[] = [];
+    const completedIds: number[] = [];
+    const extraAddedIds: number[] = [];
+
+    let plannedEffort = 0;
+    let completedEffort = 0;
+    let extraEffort = 0;
+
+    for (const wi of allWIsForMetrics) {
+      const snapStart = snapshotAt(wi.id, start);
+      const inStart = isInSprint(snapStart.iterationPath, s);
+      const realized = isClosedWithinSprint(wi.closed_date ?? null, s);
+      const enteredAfterStart = !inStart && enteredSprintAfterStart(wi.id, s);
+
+      const effortAtStart = snapStart.effort ?? 0;
+      const effortAtClose = realized && wi.closed_date ? (snapshotAt(wi.id, wi.closed_date).effort ?? 0) : 0;
+
+      if (inStart) {
+        plannedIds.push(wi.id);
+        plannedEffort += effortAtStart;
+      }
+
+      if (realized) {
+        if (inStart) {
+          completedIds.push(wi.id);
+          completedEffort += effortAtClose;
+        } else if (enteredAfterStart) {
+          extraAddedIds.push(wi.id);
+          extraEffort += effortAtClose;
+        }
+      }
+    }
+
+    const leads = completedIds
+      .map((id) => metricsMap.get(id)?.lead_time)
+      .filter((v): v is number => v != null);
+    const cycles = completedIds
+      .map((id) => metricsMap.get(id)?.cycle_time)
+      .filter((v): v is number => v != null);
+
+    const planned = plannedIds.length;
+    const completed = completedIds.length;
+    const extraAdded = extraAddedIds.length;
+    const throughput = completed + extraAdded;
+    const carryOver = Math.max(0, planned - completed);
+    const completionRate = planned ? Math.round((completed / planned) * 100) : 0;
+
+    return {
+      sprintId: s.id,
+      sprintName: s.name,
+      startDate: s.start_date,
+      finishDate: s.finish_date,
+      planned,
+      completed,
+      extraAdded,
+      plannedEffort,
+      completedEffort,
+      extraEffort,
+      carryOver,
+      throughput,
+      completionRate,
+      avgLeadTime: avg(leads),
+      avgCycleTime: avg(cycles),
+    };
+  });
 
   // Capacity — current sprint
   const currentSprint = sprints.find((s) => s.time_frame === "current") ?? sprints[sprints.length - 1];

@@ -2,6 +2,7 @@
 import { KpiCard } from "@/components/ui/KpiCard";
 import { FlowBar } from "@/components/ui/FlowBar";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
+import { useMemo, useState } from "react";
 
 const PHASE_COLORS: Record<string, string> = {
   backlog: "#6366f1", desenvolvimento: "#f59e0b", qualidade: "#06b6d4",
@@ -18,7 +19,13 @@ const WORKFLOW_PHASES: Record<string, string[]> = {
   cancelado:      ["Removed"],
 };
 
-const customTooltip = ({ active, payload, label }: Record<string,unknown>) => {
+function sprintLabel(sprintName: string): string {
+  const m = sprintName.match(/(\d+)(?!.*\d)/);
+  if (m?.[1]) return `Sprint ${m[1]}`;
+  return sprintName;
+}
+
+const customTooltip = ({ active, payload, label }: any) => {
   if (!active || !Array.isArray(payload) || !payload.length) return null;
   return (
     <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs">
@@ -34,8 +41,10 @@ const customTooltip = ({ active, payload, label }: Record<string,unknown>) => {
 };
 
 export function OverviewTab({ data }: { data: Record<string, unknown> | null }) {
-  const sprintMetrics = (data?.sprintMetrics as {sprintName:string;planned:number;completed:number;avgLeadTime:number|null;avgCycleTime:number|null;throughput:number}[]) ?? [];
+  const sprintMetrics = (data?.sprintMetrics as {sprintName:string;planned:number;completed:number;extraAdded?:number;plannedEffort?:number;completedEffort?:number;extraEffort?:number;avgLeadTime:number|null;avgCycleTime:number|null;throughput:number}[]) ?? [];
   const workItems = (data?.workItems as {state:string;leadTime:number|null;cycleTime:number|null;timeByStatus:Record<string,number>}[]) ?? [];
+
+  const [planVsRealMode, setPlanVsRealMode] = useState<"items" | "effort">("items");
 
   const done      = workItems.filter((w) => w.state === "Done");
   const leads     = done.map((w) => w.leadTime).filter((v): v is number => v != null);
@@ -61,14 +70,28 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
   const nItems = workItems.length || 1;
   const maxPhase = Math.max(1, ...Object.values(phaseTotals));
 
-  const planVsReal = sprintMetrics.map((s) => ({
-    name: s.sprintName.replace(/[^\d]/g, "S") || s.sprintName.slice(-4),
-    Planejado: s.planned,
-    Realizado: s.completed,
-  }));
+  const planVsReal = useMemo(() => {
+    return sprintMetrics.map((s) => {
+      const name = sprintLabel(s.sprintName);
+      if (planVsRealMode === "effort") {
+        return {
+          name,
+          Planejado: s.plannedEffort ?? 0,
+          Realizado: s.completedEffort ?? 0,
+          Extra: s.extraEffort ?? 0,
+        };
+      }
+      return {
+        name,
+        Planejado: s.planned,
+        Realizado: s.completed,
+        Extra: s.extraAdded ?? 0,
+      };
+    });
+  }, [sprintMetrics, planVsRealMode]);
 
   const ltData = sprintMetrics.map((s) => ({
-    name: s.sprintName.replace(/[^\d]/g, "S") || s.sprintName.slice(-4),
+    name: sprintLabel(s.sprintName),
     "Lead Time": s.avgLeadTime != null ? parseFloat(s.avgLeadTime.toFixed(1)) : 0,
     "Cycle Time": s.avgCycleTime != null ? parseFloat(s.avgCycleTime.toFixed(1)) : 0,
   }));
@@ -88,16 +111,41 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
       {/* Charts row */}
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
-          <div className="text-sm font-semibold mb-4">Planejado vs Realizado</div>
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-sm font-semibold">Planejado vs Realizado</div>
+            <div className="flex items-center gap-1 bg-[var(--bg3)] border border-[var(--border)] rounded-lg p-1">
+              <button
+                type="button"
+                onClick={() => setPlanVsRealMode("items")}
+                className={
+                  "px-2.5 py-1 rounded-md text-[11px] font-medium " +
+                  (planVsRealMode === "items" ? "bg-[var(--bg2)] text-[var(--text1)]" : "text-[var(--text3)]")
+                }
+              >
+                Itens
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlanVsRealMode("effort")}
+                className={
+                  "px-2.5 py-1 rounded-md text-[11px] font-medium " +
+                  (planVsRealMode === "effort" ? "bg-[var(--bg2)] text-[var(--text1)]" : "text-[var(--text3)]")
+                }
+              >
+                Effort
+              </button>
+            </div>
+          </div>
           <ResponsiveContainer width="100%" height={170}>
             <BarChart data={planVsReal} barCategoryGap="30%">
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-              <Tooltip content={customTooltip as React.ComponentType} />
+              <Tooltip content={customTooltip as any} />
               <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
               <Bar dataKey="Planejado" fill="var(--accent)"  radius={[3,3,0,0]} />
-              <Bar dataKey="Realizado" fill="var(--success)" radius={[3,3,0,0]} />
+              <Bar dataKey="Realizado" stackId="real" fill="var(--success)" radius={[3,3,0,0]} />
+              <Bar dataKey="Extra" stackId="real" fill="var(--warn)" radius={[3,3,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -109,7 +157,7 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-              <Tooltip content={customTooltip as React.ComponentType} />
+              <Tooltip content={customTooltip as any} />
               <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
               <Bar dataKey="Lead Time"  fill="var(--purple)" radius={[3,3,0,0]} />
               <Bar dataKey="Cycle Time" fill="var(--accent)"  radius={[3,3,0,0]} />
@@ -130,11 +178,11 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
         <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
           <div className="text-sm font-semibold mb-4">Throughput por Sprint</div>
           <ResponsiveContainer width="100%" height={170}>
-            <BarChart data={sprintMetrics.map((s) => ({ name: s.sprintName.replace(/[^\d]/g,"S")||s.sprintName.slice(-4), Throughput: s.throughput }))} barCategoryGap="30%">
+            <BarChart data={sprintMetrics.map((s) => ({ name: sprintLabel(s.sprintName), Throughput: s.throughput }))} barCategoryGap="30%">
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-              <Tooltip content={customTooltip as React.ComponentType} />
+              <Tooltip content={customTooltip as any} />
               <Bar dataKey="Throughput" fill="var(--success)" radius={[3,3,0,0]} />
             </BarChart>
           </ResponsiveContainer>

@@ -2,7 +2,7 @@
 
 // ── SprintsTab ────────────────────────────────────────────────────────────────
 export function SprintsTab({ data }: { data: Record<string,unknown>|null }) {
-  type SM = { sprintId:string; sprintName:string; startDate?:string|null; finishDate?:string|null; planned:number; completed:number; carryOver:number; completionRate:number; avgLeadTime?:number|null };
+  type SM = { sprintId:string; sprintName:string; startDate?:string|null; finishDate?:string|null; planned:number; completed:number; extraAdded?:number; carryOver:number; completionRate:number; avgLeadTime?:number|null };
   const sprints = (data?.sprintMetrics as SM[]) ?? [];
 
   if (!sprints.length) return (
@@ -28,10 +28,11 @@ export function SprintsTab({ data }: { data: Record<string,unknown>|null }) {
               </div>
             </div>
 
-            <div className="grid grid-cols-4 gap-2.5 mb-4">
+            <div className="grid grid-cols-5 gap-2.5 mb-4">
               {[
                 ["Planejado",  s.planned,      "var(--accent)"],
                 ["Realizado",  s.completed,    "var(--success)"],
+                ["Extra",      s.extraAdded ?? 0, "var(--warn)"],
                 ["Carry Over", s.carryOver,    "var(--danger)"],
                 ["Lead Time",  s.avgLeadTime != null ? `${s.avgLeadTime.toFixed(1)}d` : "—", "var(--purple)"],
               ].map(([lbl, val, c]) => (

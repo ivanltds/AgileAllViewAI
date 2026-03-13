@@ -99,6 +99,15 @@ export const revisionsRepo = {
       "SELECT * FROM revisions WHERE work_item_id = ? ORDER BY changed_date ASC"
     ).all(workItemId) as Revision[];
   },
+  byTeam(teamId: string): Revision[] {
+    return getDb().prepare(
+      `SELECT r.*
+       FROM revisions r
+       JOIN work_items w ON w.id = r.work_item_id
+       WHERE w.team_id = ?
+       ORDER BY r.work_item_id ASC, r.changed_date ASC`
+    ).all(teamId) as Revision[];
+  },
   maxRev(workItemId: number): number {
     const row = getDb().prepare(
       "SELECT MAX(rev) as max_rev FROM revisions WHERE work_item_id = ?"
