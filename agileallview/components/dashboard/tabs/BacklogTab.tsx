@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { StateBadge } from "@/components/ui/Badge";
 import { FlowBar } from "@/components/ui/FlowBar";
 
@@ -9,36 +9,111 @@ const STATE_COLORS: Record<string,string> = {
   "Wait Client":"#ec4899",Ready:"#10b981",Done:"#22c55e",Removed:"#ef4444",
 };
 
-type WI = { id:number; title?:string; state?:string; iteration?:string; assignedTo?:string; effort?:number|null; leadTime?:number|null; cycleTime?:number|null; statusTimeline?:{state:string;startDate:string;endDate:string;duration:number}[]; timeByStatus?:Record<string,number> };
+type WI = { id:number; title?:string; state?:string; boardColumn?:string|null; iteration?:string; assignedTo?:string; effort?:number|null; leadTime?:number|null; cycleTime?:number|null; statusTimeline?:{state:string;startDate:string;endDate:string;duration:number}[]; timeByStatus?:Record<string,number> };
 
-export function BacklogTab({ data }: { data: Record<string,unknown>|null }) {
+type SortKey = "id" | "title" | "state" | "boardColumn" | "iteration" | "effort" | "leadTime" | "cycleTime" | "assignedTo";
+
+export function BacklogTab({ data, openBacklog }: { data: Record<string,unknown>|null; openBacklog?: boolean }) {
   const wis = (data?.workItems as WI[]) ?? [];
   const [sel, setSel] = useState<WI|null>(null);
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" } | null>({ key: "id", dir: "desc" });
 
-  const filtered = wis.filter((w) =>
-    !search || w.title?.toLowerCase().includes(search.toLowerCase()) || String(w.id).includes(search)
-  );
+  const filtered = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    const base = wis.filter((w) =>
+      !s || w.title?.toLowerCase().includes(s) || String(w.id).includes(s)
+    );
+
+    if (!sort) return base;
+
+    const dirMul = sort.dir === "asc" ? 1 : -1;
+    const normText = (v: unknown) => (v == null ? "" : String(v)).toLowerCase();
+    const normNum = (v: unknown) => (v == null || v === "—" ? Number.NaN : Number(v));
+    const stateRank = (state?: string) => {
+      const s = (state ?? "").trim();
+      const order: string[] = [
+        "New",
+        "Approved",
+        "Design",
+        "To Do",
+        "Committed",
+        "In Progress",
+        "Testing",
+        "Wait Client",
+        "Ready",
+        "Done",
+        "Removed",
+      ];
+      const idx = order.indexOf(s);
+      return idx >= 0 ? idx : 999;
+    };
+
+    return base.slice().sort((a, b) => {
+      const key = sort.key;
+      if (key === "id") return (a.id - b.id) * dirMul;
+      if (key === "state") return (stateRank(a.state) - stateRank(b.state)) * dirMul;
+      if (key === "effort" || key === "leadTime" || key === "cycleTime") {
+        const av = normNum((a as any)[key]);
+        const bv = normNum((b as any)[key]);
+        const aNan = Number.isNaN(av);
+        const bNan = Number.isNaN(bv);
+        if (aNan && bNan) return 0;
+        if (aNan) return 1;
+        if (bNan) return -1;
+        return (av - bv) * dirMul;
+      }
+
+      const at = normText((a as any)[key]);
+      const bt = normText((b as any)[key]);
+      if (at < bt) return -1 * dirMul;
+      if (at > bt) return  1 * dirMul;
+      return 0;
+    });
+  }, [wis, search, sort]);
+
+  const toggleSort = (key: SortKey) => {
+    setSort((prev) => {
+      if (!prev || prev.key !== key) return { key, dir: "asc" };
+      return { key, dir: prev.dir === "asc" ? "desc" : "asc" };
+    });
+  };
+
+  const sortMark = (key: SortKey) => {
+    if (!sort || sort.key !== key) return "";
+    return sort.dir === "asc" ? " ▲" : " ▼";
+  };
 
   return (
     <div>
       <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl overflow-hidden mb-4">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
-          <div className="text-sm font-semibold">PBIs do período <span className="text-[var(--text3)] font-normal font-mono">({wis.length})</span></div>
+          <div className="text-sm font-semibold">
+            {openBacklog ? "Backlog em aberto" : "PBIs do período"}
+            <span className="text-[var(--text3)] font-normal font-mono"> ({wis.length})</span>
+          </div>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por título ou ID..."
             className="bg-[var(--bg3)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-xs outline-none focus:border-[var(--accent)] text-[var(--text)] w-56" />
         </div>
 
         {wis.length === 0 ? (
-          <div className="py-12 text-center text-[var(--text3)] text-sm">Nenhum PBI encontrado. Sincronize o time.</div>
+          <div className="py-12 text-center text-[var(--text3)] text-sm">
+            {openBacklog ? "Nenhum item em aberto encontrado." : "Nenhum PBI encontrado. Ajuste o período ou sincronize o time."}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="bg-[var(--bg3)] sticky top-0">
-                  {["ID","Título","Estado","Sprint","Esforço","Lead Time","Cycle Time","Responsável"].map((h) => (
-                    <th key={h} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap">{h}</th>
-                  ))}
+                  <th onClick={() => toggleSort("id")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">ID{sortMark("id")}</th>
+                  <th onClick={() => toggleSort("title")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">Título{sortMark("title")}</th>
+                  <th onClick={() => toggleSort("state")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">Estado{sortMark("state")}</th>
+                  <th onClick={() => toggleSort("boardColumn")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">Board{sortMark("boardColumn")}</th>
+                  <th onClick={() => toggleSort("iteration")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">Sprint{sortMark("iteration")}</th>
+                  <th onClick={() => toggleSort("effort")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">Esforço{sortMark("effort")}</th>
+                  <th onClick={() => toggleSort("leadTime")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">Lead Time{sortMark("leadTime")}</th>
+                  <th onClick={() => toggleSort("cycleTime")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">Cycle Time{sortMark("cycleTime")}</th>
+                  <th onClick={() => toggleSort("assignedTo")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">Responsável{sortMark("assignedTo")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -48,6 +123,7 @@ export function BacklogTab({ data }: { data: Record<string,unknown>|null }) {
                     <td className="px-3 py-2.5 font-mono text-[var(--accent)]">{w.id}</td>
                     <td className="px-3 py-2.5 text-[var(--text)] max-w-[180px] truncate">{w.title}</td>
                     <td className="px-3 py-2.5"><StateBadge state={w.state} /></td>
+                    <td className="px-3 py-2.5 text-[var(--text2)] text-[11px]">{w.boardColumn ?? "—"}</td>
                     <td className="px-3 py-2.5 font-mono text-[var(--text3)] text-[10px]">{w.iteration ?? "—"}</td>
                     <td className="px-3 py-2.5 font-mono">{w.effort ?? "—"}</td>
                     <td className="px-3 py-2.5 font-mono" style={{ color: (w.leadTime ?? 0) > 15 ? "var(--danger)" : "var(--text2)" }}>{w.leadTime != null ? `${w.leadTime.toFixed(1)}d` : "—"}</td>

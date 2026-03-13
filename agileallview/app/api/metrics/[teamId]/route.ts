@@ -43,15 +43,19 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
   const sprintIdsParam = url.searchParams.get("sprintIds");
   const dateFrom       = url.searchParams.get("from");
   const dateTo         = url.searchParams.get("to");
+  const openBacklog    = url.searchParams.get("openBacklog") === "1";
 
   const team = teamsRepo.byId(teamId);
   if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
 
   // All sprints for this team
   const allSprints = iterationsRepo.byTeam(teamId);
-  const availableSprints = allSprints
-    .filter((s) => s.time_frame !== "future")
-    .slice(-4);
+  const nonFutureSprints = allSprints.filter((s) => s.time_frame !== "future");
+  const futureSprints = allSprints.filter((s) => s.time_frame === "future");
+  const availableSprints = [
+    ...nonFutureSprints.slice(-4),
+    ...futureSprints.slice(0, 3),
+  ].filter((s, idx, arr) => arr.findIndex((x) => x.id === s.id) === idx);
 
   let sprints = allSprints;
 
@@ -78,11 +82,35 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
   }
 
   const sprintNames = new Set(sprints.map((s) => s.name));
+  const sprintRanges = sprints
+    .map((s) => ({
+      name: s.name,
+      start: s.start_date ? new Date(s.start_date).getTime() : null,
+      finish: s.finish_date ? new Date(s.finish_date).getTime() : null,
+    }))
+    .filter((r) => r.name);
+
+  const belongsToSelectedSprint = (wi: { iteration_name?: string | null; closed_date?: string | null }) => {
+    const closed = wi.closed_date ? new Date(wi.closed_date).getTime() : null;
+
+    // Primary rule: if it closed inside a sprint period, it belongs to that sprint
+    if (closed != null) {
+      for (const r of sprintRanges) {
+        if (r.start == null || r.finish == null) continue;
+        if (closed >= r.start && closed <= r.finish) return true;
+      }
+    }
+
+    // Fallback: if not closed (or sprint dates missing), use iteration assignment
+    return Boolean(wi.iteration_name && sprintNames.has(wi.iteration_name));
+  };
 
   // Work items for filtered sprints
-  const allWIs = workItemsRepo.byTeam(teamId).filter(
-    (w) => !sprints.length || (w.iteration_name && sprintNames.has(w.iteration_name))
-  );
+  const allWIs = openBacklog
+    ? workItemsRepo.byTeam(teamId).filter((w) => w.state !== "Done" && w.state !== "Removed")
+    : workItemsRepo.byTeam(teamId).filter(
+      (w) => !sprints.length || belongsToSelectedSprint(w as any)
+    );
 
   // Metrics map
   const allMetrics = metricsRepo.byTeam(teamId);
@@ -94,6 +122,7 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
       id: wi.id,
       title:      wi.title,
       state:      wi.state,
+      boardColumn: (wi as any).board_column ?? null,
       iteration:  wi.iteration_name,
       assignedTo: wi.assigned_to,
       effort:     wi.effort,
@@ -227,10 +256,18 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
 
       const effortAtStart = snapStart.effort ?? 0;
       const effortAtClose = realized && wi.closed_date ? (snapshotAt(wi.id, wi.closed_date).effort ?? 0) : 0;
+      const effortAtEnd = snapshotAt(wi.id, end).effort ?? 0;
 
       if (inStart) {
         plannedIds.push(wi.id);
         plannedEffort += effortAtStart;
+      }
+
+      // If an item entered the sprint after it started, it is still part of the sprint scope.
+      // It might not be completed within the sprint, but it should count towards planned/carryover.
+      if (enteredAfterStart) {
+        plannedIds.push(wi.id);
+        plannedEffort += effortAtEnd;
       }
 
       if (realized) {

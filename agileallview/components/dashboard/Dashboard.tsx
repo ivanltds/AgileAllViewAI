@@ -59,6 +59,12 @@ export function Dashboard({
   const [syncProg, setSyncProg] = useState<{ msg: string; pct: number } | null>(null);
   const [syncError, setSyncError] = useState("");
 
+  const noFiltersApplied =
+    !selectedSprintIds.length &&
+    periodPreset === "sprints" &&
+    !dateFrom &&
+    !dateTo;
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -79,12 +85,16 @@ export function Dashboard({
       if (dateFrom) params.set("from", dateFrom);
       if (dateTo)   params.set("to",   dateTo);
 
+      if (tab === "backlog" && noFiltersApplied) {
+        params.set("openBacklog", "1");
+      }
+
       const res = await fetch(`/api/metrics/${team.id}?${params}`);
       if (res.ok) setData(await res.json());
     } finally {
       setLoading(false);
     }
-  }, [team.id, selectedSprintIds, periodPreset, dateFrom, dateTo]);
+  }, [team.id, selectedSprintIds, periodPreset, dateFrom, dateTo, tab, noFiltersApplied]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -128,7 +138,23 @@ export function Dashboard({
 
   const sprintMetrics = (data?.sprintMetrics as unknown[]) ?? [];
   const hasSyncState  = team.syncState?.lastSync;
-  const availableSprints = ((data as any)?.availableSprints as any[] | undefined) ?? [];
+  const availableSprintsRaw = ((data as any)?.availableSprints as any[] | undefined) ?? [];
+  const availableSprints = [...availableSprintsRaw].sort((a, b) => {
+    const ad = new Date((a as any).start_date ?? (a as any).finish_date ?? 0).getTime();
+    const bd = new Date((b as any).start_date ?? (b as any).finish_date ?? 0).getTime();
+    return bd - ad;
+  });
+  const nextFutureId = (() => {
+    const fut = availableSprintsRaw
+      .filter((s) => String((s as any).time_frame) === "future")
+      .slice()
+      .sort((a, b) => {
+        const ad = new Date((a as any).start_date ?? (a as any).finish_date ?? 0).getTime();
+        const bd = new Date((b as any).start_date ?? (b as any).finish_date ?? 0).getTime();
+        return ad - bd;
+      })[0];
+    return fut ? String((fut as any).id) : null;
+  })();
 
   return (
     <main className="flex-1 px-5 py-5 max-w-[1600px] mx-auto w-full">
@@ -185,6 +211,23 @@ export function Dashboard({
               const id = String((s as any).id);
               const name = String((s as any).name ?? "?");
               const active = selectedSprintIds.includes(id);
+              const frame = String((s as any).time_frame ?? "past");
+              const isCurrent = frame === "current";
+              const isFuture = frame === "future";
+              const isNext = isFuture && nextFutureId === id;
+
+              const baseInactive = "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]";
+              const currentInactive = "bg-[rgba(14,165,233,.08)] border border-[rgba(14,165,233,.25)] text-[var(--text2)] hover:border-[var(--accent)]";
+              const nextInactive = "bg-[rgba(139,92,246,.08)] border border-[rgba(139,92,246,.25)] text-[var(--text2)] hover:border-[var(--purple)]";
+              const futureInactive = "bg-[rgba(148,163,184,.06)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--border2)]";
+              const inactiveClass = isCurrent
+                ? currentInactive
+                : isNext
+                  ? nextInactive
+                  : isFuture
+                    ? futureInactive
+                    : baseInactive;
+
               return (
                 <button
                   key={id}
@@ -197,7 +240,7 @@ export function Dashboard({
                       : [...selectedSprintIds, id]
                     );
                   }}
-                  className={`px-2.5 py-1 rounded text-xs transition-all ${active ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}
+                  className={`px-2.5 py-1 rounded text-xs transition-all ${active ? "bg-[rgba(14,165,233,.12)] border border-[var(--accent)] text-[var(--accent)]" : inactiveClass}`}
                   title={name}
                 >
                   {name}
@@ -257,7 +300,7 @@ export function Dashboard({
       ) : (
         <div className="animate-fade-up">
           {tab === "overview"   && <OverviewTab   data={data} />}
-          {tab === "backlog"    && <BacklogTab    data={data} />}
+          {tab === "backlog"    && <BacklogTab    data={data} openBacklog={noFiltersApplied} />}
           {tab === "sprints"    && <SprintsTab    data={data} />}
           {tab === "capacity"   && <CapacityTab   data={data} />}
           {tab === "simulation" && <SimulationTab data={data} allTeams={allTeams} teamId={team.id} />}

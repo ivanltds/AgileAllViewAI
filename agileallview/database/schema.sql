@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS work_items (
   team_id         TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
   title           TEXT,
   state           TEXT,
+  board_column    TEXT,
   work_item_type  TEXT DEFAULT 'Product Backlog Item',
   created_date    TEXT,
   changed_date    TEXT,

@@ -28,6 +28,7 @@ export function getDb(): Database.Database {
   _db.exec(schema);
 
   // Best-effort schema upgrades for existing DBs
+  ensureColumn(_db, "work_items", "board_column", "TEXT");
   ensureColumn(_db, "work_items", "dor_checklist", "TEXT");
   ensureColumn(_db, "work_items", "dod_checklist", "TEXT");
 
