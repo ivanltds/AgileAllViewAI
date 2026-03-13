@@ -1,13 +1,19 @@
 "use client";
 import { KpiCard } from "@/components/ui/KpiCard";
-import { FlowBar } from "@/components/ui/FlowBar";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
+import { XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid, LineChart, Line, BarChart, Bar } from "recharts";
 import { useMemo, useState } from "react";
 
 const PHASE_COLORS: Record<string, string> = {
   backlog: "#6366f1", desenvolvimento: "#f59e0b", qualidade: "#06b6d4",
   validacao: "#ec4899", pronto: "#10b981", concluido: "#22c55e", cancelado: "#ef4444",
 };
+
+function percentileValue(values: number[], p: number): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+  return sorted[idx] ?? null;
+}
 
 const WORKFLOW_PHASES: Record<string, string[]> = {
   backlog:        ["New","Approved","Design","To Do"],
@@ -23,6 +29,20 @@ function sprintLabel(sprintName: string): string {
   const m = sprintName.match(/(\d+)(?!.*\d)/);
   if (m?.[1]) return `Sprint ${m[1]}`;
   return sprintName;
+}
+
+function HelpButton({ onClick, isOpen }: { onClick: () => void; isOpen: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-7 h-7 rounded-full bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] text-sm font-bold flex items-center justify-center"
+      aria-label="Dúvida"
+      title={isOpen ? "Fechar ajuda" : "O que esse gráfico mostra?"}
+    >
+      ?
+    </button>
+  );
 }
 
 const customTooltip = ({ active, payload, label }: any) => {
@@ -41,10 +61,16 @@ const customTooltip = ({ active, payload, label }: any) => {
 };
 
 export function OverviewTab({ data }: { data: Record<string, unknown> | null }) {
-  const sprintMetrics = (data?.sprintMetrics as {sprintName:string;planned:number;completed:number;extraAdded?:number;plannedEffort?:number;completedEffort?:number;extraEffort?:number;avgLeadTime:number|null;avgCycleTime:number|null;throughput:number}[]) ?? [];
+  const sprintMetrics = (data?.sprintMetrics as {planned:number;completed:number;throughput:number}[]) ?? [];
   const workItems = (data?.workItems as {state:string;leadTime:number|null;cycleTime:number|null;timeByStatus:Record<string,number>}[]) ?? [];
+  const leadTimeValues = (data?.leadTimeValues as number[]) ?? [];
+  const cycleTimeValues = (data?.cycleTimeValues as number[]) ?? [];
+  const leadTimeByDeliveryWeek = (data?.leadTimeByDeliveryWeek as {week:string;count:number;p50:number|null;p85:number|null;p95:number|null}[]) ?? [];
+  const cycleTimeByDeliveryWeek = (data?.cycleTimeByDeliveryWeek as {week:string;count:number;p50:number|null;p85:number|null;p95:number|null}[]) ?? [];
 
-  const [planVsRealMode, setPlanVsRealMode] = useState<"items" | "effort">("items");
+  const [leadPct, setLeadPct] = useState<number>(90);
+  const [cyclePct, setCyclePct] = useState<number>(90);
+  const [helpOpen, setHelpOpen] = useState<Record<string, boolean>>({});
 
   const done      = workItems.filter((w) => w.state === "Done");
   const leads     = done.map((w) => w.leadTime).filter((v): v is number => v != null);
@@ -57,44 +83,38 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
   const completionRate = totalPlanned ? Math.round((totalCompleted / totalPlanned) * 100) : 0;
   const avgThrough     = sprintMetrics.length ? (sprintMetrics.reduce((s, x) => s + x.throughput, 0) / sprintMetrics.length).toFixed(1) : "—";
 
-  // Phase time aggregation
-  const phaseTotals: Record<string, number> = {};
-  for (const wi of workItems) {
-    for (const [phase, states] of Object.entries(WORKFLOW_PHASES)) {
-      for (const st of states) {
-        const v = wi.timeByStatus?.[st];
-        if (v) phaseTotals[phase] = (phaseTotals[phase] ?? 0) + v;
-      }
-    }
-  }
-  const nItems = workItems.length || 1;
-  const maxPhase = Math.max(1, ...Object.values(phaseTotals));
+  const leadPctDays = useMemo(() => percentileValue(leadTimeValues, leadPct), [leadTimeValues, leadPct]);
+  const cyclePctDays = useMemo(() => percentileValue(cycleTimeValues, cyclePct), [cycleTimeValues, cyclePct]);
 
-  const planVsReal = useMemo(() => {
-    return sprintMetrics.map((s) => {
-      const name = sprintLabel(s.sprintName);
-      if (planVsRealMode === "effort") {
-        return {
-          name,
-          Planejado: s.plannedEffort ?? 0,
-          Realizado: s.completedEffort ?? 0,
-          Extra: s.extraEffort ?? 0,
-        };
-      }
-      return {
-        name,
-        Planejado: s.planned,
-        Realizado: s.completed,
-        Extra: s.extraAdded ?? 0,
-      };
-    });
-  }, [sprintMetrics, planVsRealMode]);
+  const leadByDeliveryWeekData = useMemo(() => {
+    return leadTimeByDeliveryWeek.map((w) => ({
+      name: w.week,
+      P50: w.p50 != null ? parseFloat(w.p50.toFixed(1)) : null,
+      P85: w.p85 != null ? parseFloat(w.p85.toFixed(1)) : null,
+      P95: w.p95 != null ? parseFloat(w.p95.toFixed(1)) : null,
+      Count: w.count,
+    }));
+  }, [leadTimeByDeliveryWeek]);
 
-  const ltData = sprintMetrics.map((s) => ({
-    name: sprintLabel(s.sprintName),
-    "Lead Time": s.avgLeadTime != null ? parseFloat(s.avgLeadTime.toFixed(1)) : 0,
-    "Cycle Time": s.avgCycleTime != null ? parseFloat(s.avgCycleTime.toFixed(1)) : 0,
-  }));
+  const cycleByDeliveryWeekData = useMemo(() => {
+    return cycleTimeByDeliveryWeek.map((w) => ({
+      name: w.week,
+      P50: w.p50 != null ? parseFloat(w.p50.toFixed(1)) : null,
+      P85: w.p85 != null ? parseFloat(w.p85.toFixed(1)) : null,
+      P95: w.p95 != null ? parseFloat(w.p95.toFixed(1)) : null,
+      Count: w.count,
+    }));
+  }, [cycleTimeByDeliveryWeek]);
+
+  const plannedVsRealizedData = useMemo(() => {
+    return sprintMetrics.map((s: any, idx) => ({
+      name: sprintLabel(String(s.sprintName ?? `Sprint ${idx + 1}`)),
+      Planejado: Number(s.planned ?? 0),
+      Concluido: Number(s.completed ?? 0),
+      Extras: Number(s.extraAdded ?? 0),
+      Throughput: Number(s.throughput ?? 0),
+    }));
+  }, [sprintMetrics]);
 
   return (
     <div>
@@ -108,84 +128,170 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
         <KpiCard label="PBIs analisados"   value={workItems.length} color="var(--text2)" icon={<GridIcon/>} />
       </div>
 
-      {/* Charts row */}
-      <div className="grid grid-cols-2 gap-4 mb-4">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="text-sm font-semibold">Planejado vs Realizado</div>
-            <div className="flex items-center gap-1 bg-[var(--bg3)] border border-[var(--border)] rounded-lg p-1">
-              <button
-                type="button"
-                onClick={() => setPlanVsRealMode("items")}
-                className={
-                  "px-2.5 py-1 rounded-md text-[11px] font-medium " +
-                  (planVsRealMode === "items" ? "bg-[var(--bg2)] text-[var(--text1)]" : "text-[var(--text3)]")
-                }
-              >
-                Itens
-              </button>
-              <button
-                type="button"
-                onClick={() => setPlanVsRealMode("effort")}
-                className={
-                  "px-2.5 py-1 rounded-md text-[11px] font-medium " +
-                  (planVsRealMode === "effort" ? "bg-[var(--bg2)] text-[var(--text1)]" : "text-[var(--text3)]")
-                }
-              >
-                Effort
-              </button>
+          <div className="flex items-start justify-between gap-3 mb-4">
+            <div className="text-sm font-semibold">Planejado vs Realizado (por sprint)</div>
+            <HelpButton
+              isOpen={Boolean(helpOpen.plan)}
+              onClick={() => setHelpOpen((v) => ({ ...v, plan: !v.plan }))}
+            />
+          </div>
+          {helpOpen.plan && (
+            <div className="text-[12px] text-[var(--text2)] mb-4 leading-relaxed">
+              Planejado = itens que estavam no sprint no início. Realizado = itens concluídos dentro do período do sprint.
+              Extras = itens adicionados após o início do sprint e também concluídos dentro do período.
+            </div>
+          )}
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={plannedVsRealizedData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+              <Tooltip content={customTooltip as any} />
+              <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
+              <Bar dataKey="Planejado" stackId="a" fill="var(--text3)" />
+              <Bar dataKey="Concluido" stackId="b" fill="var(--success)" />
+              <Bar dataKey="Extras" stackId="b" fill="var(--warn)" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
+          <div className="flex items-start justify-between gap-3 mb-4">
+            <div className="text-sm font-semibold">Throughput (por sprint)</div>
+            <HelpButton
+              isOpen={Boolean(helpOpen.throughput)}
+              onClick={() => setHelpOpen((v) => ({ ...v, throughput: !v.throughput }))}
+            />
+          </div>
+          {helpOpen.throughput && (
+            <div className="text-[12px] text-[var(--text2)] mb-4 leading-relaxed">
+              Throughput é o total de itens entregues no sprint (concluídos do planejado + extras concluídos dentro do período).
+            </div>
+          )}
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={plannedVsRealizedData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+              <Tooltip content={customTooltip as any} />
+              <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
+              <Bar dataKey="Throughput" fill="var(--accent)" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
+          <div className="flex items-start justify-between gap-3 mb-4">
+            <div className="text-sm font-semibold">Lead Time por semana de entrega (p50/p85/p95)</div>
+            <HelpButton
+              isOpen={Boolean(helpOpen.lead)}
+              onClick={() => setHelpOpen((v) => ({ ...v, lead: !v.lead }))}
+            />
+          </div>
+          {helpOpen.lead && (
+            <div className="text-[12px] text-[var(--text2)] mb-4 leading-relaxed">
+              Agrupa as demandas pela semana em que foram entregues (data de fechamento) e mostra a distribuição do Lead Time.
+              As linhas p50/p85/p95 indicam em quantos dias a maior parte das demandas é entregue. O card ao lado permite ajustar o percentil e ler o SLE do período selecionado.
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-4 items-stretch">
+            <div>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={leadByDeliveryWeekData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                  <Tooltip content={customTooltip as any} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
+                  <Line type="monotone" dataKey="P50" stroke="var(--accent)" strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="P85" stroke="var(--purple)" strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="P95" stroke="var(--warn)" strokeWidth={2} dot={false} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col">
+              <div className="text-[11px] text-[var(--text3)] mb-2">Percentil</div>
+              <div className="text-3xl font-bold font-mono leading-none">
+                {leadPctDays != null ? `${Math.round(leadPctDays)}d` : "—"}
+              </div>
+              <div className="text-[11px] text-[var(--text2)] mt-2 leading-snug">
+                {leadPct}% das demandas são entregues em {leadPctDays != null ? `${Math.round(leadPctDays)} dias` : "—"}
+              </div>
+              <div className="mt-auto pt-3">
+                <input
+                  type="range"
+                  min={50}
+                  max={99}
+                  step={1}
+                  value={leadPct}
+                  onChange={(e) => setLeadPct(parseInt(e.target.value))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-[10px] text-[var(--text3)] mt-1">
+                  <span>50%</span>
+                  <span>99%</span>
+                </div>
+              </div>
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={170}>
-            <BarChart data={planVsReal} barCategoryGap="30%">
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-              <Tooltip content={customTooltip as any} />
-              <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
-              <Bar dataKey="Planejado" fill="var(--accent)"  radius={[3,3,0,0]} />
-              <Bar dataKey="Realizado" stackId="real" fill="var(--success)" radius={[3,3,0,0]} />
-              <Bar dataKey="Extra" stackId="real" fill="var(--warn)" radius={[3,3,0,0]} />
-            </BarChart>
-          </ResponsiveContainer>
         </div>
 
         <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
-          <div className="text-sm font-semibold mb-4">Lead Time & Cycle Time por Sprint (dias)</div>
-          <ResponsiveContainer width="100%" height={170}>
-            <BarChart data={ltData} barCategoryGap="30%">
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-              <Tooltip content={customTooltip as any} />
-              <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
-              <Bar dataKey="Lead Time"  fill="var(--purple)" radius={[3,3,0,0]} />
-              <Bar dataKey="Cycle Time" fill="var(--accent)"  radius={[3,3,0,0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Phase time + throughput */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
-          <div className="text-sm font-semibold mb-4">Tempo médio por fase (dias/item)</div>
-          {Object.entries(phaseTotals).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([ph, val]) => (
-            <FlowBar key={ph} label={ph.charAt(0).toUpperCase() + ph.slice(1)} value={val / nItems} max={maxPhase / nItems} color={PHASE_COLORS[ph]} />
-          ))}
-          {Object.keys(phaseTotals).length === 0 && <p className="text-[var(--text3)] text-sm">Sincronize para ver os dados</p>}
-        </div>
-        <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
-          <div className="text-sm font-semibold mb-4">Throughput por Sprint</div>
-          <ResponsiveContainer width="100%" height={170}>
-            <BarChart data={sprintMetrics.map((s) => ({ name: sprintLabel(s.sprintName), Throughput: s.throughput }))} barCategoryGap="30%">
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-              <Tooltip content={customTooltip as any} />
-              <Bar dataKey="Throughput" fill="var(--success)" radius={[3,3,0,0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="flex items-start justify-between gap-3 mb-4">
+            <div className="text-sm font-semibold">Cycle Time por semana de entrega (p50/p85/p95)</div>
+            <HelpButton
+              isOpen={Boolean(helpOpen.cycle)}
+              onClick={() => setHelpOpen((v) => ({ ...v, cycle: !v.cycle }))}
+            />
+          </div>
+          {helpOpen.cycle && (
+            <div className="text-[12px] text-[var(--text2)] mb-4 leading-relaxed">
+              Agrupa as demandas pela semana em que foram entregues (data de fechamento) e mostra a distribuição do Cycle Time.
+              As linhas p50/p85/p95 indicam em quantos dias a maior parte das demandas é entregue. O card ao lado permite ajustar o percentil e ler o SLE do período selecionado.
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-4 items-stretch">
+            <div>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={cycleByDeliveryWeekData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                  <Tooltip content={customTooltip as any} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
+                  <Line type="monotone" dataKey="P50" stroke="var(--accent)" strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="P85" stroke="var(--purple)" strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="P95" stroke="var(--warn)" strokeWidth={2} dot={false} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col">
+              <div className="text-[11px] text-[var(--text3)] mb-2">Percentil</div>
+              <div className="text-3xl font-bold font-mono leading-none">
+                {cyclePctDays != null ? `${Math.round(cyclePctDays)}d` : "—"}
+              </div>
+              <div className="text-[11px] text-[var(--text2)] mt-2 leading-snug">
+                {cyclePct}% das demandas são entregues em {cyclePctDays != null ? `${Math.round(cyclePctDays)} dias` : "—"}
+              </div>
+              <div className="mt-auto pt-3">
+                <input
+                  type="range"
+                  min={50}
+                  max={99}
+                  step={1}
+                  value={cyclePct}
+                  onChange={(e) => setCyclePct(parseInt(e.target.value))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-[10px] text-[var(--text3)] mt-1">
+                  <span>50%</span>
+                  <span>99%</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

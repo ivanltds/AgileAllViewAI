@@ -19,6 +19,23 @@ import {
 } from "@/lib/analytics/engine";
 import type { Iteration } from "@/lib/types";
 
+const weekStartIso = (dateIso: string): string => {
+  const d = new Date(dateIso);
+  const day = d.getDay();
+  const diff = (day === 0 ? -6 : 1) - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+const pct = (values: number[], p: number): number | null => {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+  return sorted[idx] ?? null;
+};
+
 export async function GET(req: NextRequest, { params }: { params: { teamId: string } }) {
   const { teamId } = params;
   const url = new URL(req.url);
@@ -82,6 +99,7 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
       effort:     wi.effort,
       activity:   wi.activity,
       bloqueio:   Boolean(wi.bloqueio),
+      closedDate: wi.closed_date ?? null,
       leadTime:   m?.lead_time ?? null,
       cycleTime:  m?.cycle_time ?? null,
       statusTimeline: m ? JSON.parse(m.status_timeline || "[]") : [],
@@ -163,6 +181,8 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
   };
 
   const avg = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null);
+  const min = (arr: number[]) => (arr.length ? Math.min(...arr) : null);
+  const max = (arr: number[]) => (arr.length ? Math.max(...arr) : null);
 
   const sprintMetrics = sprints.map((s) => {
     const start = s.start_date;
@@ -184,6 +204,10 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
         completionRate: 0,
         avgLeadTime: null,
         avgCycleTime: null,
+        leadTimeMin: null,
+        leadTimeMax: null,
+        cycleTimeMin: null,
+        cycleTimeMax: null,
       };
     }
 
@@ -220,10 +244,12 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
       }
     }
 
-    const leads = completedIds
+    const realizedIds = [...completedIds, ...extraAddedIds];
+
+    const leads = realizedIds
       .map((id) => metricsMap.get(id)?.lead_time)
       .filter((v): v is number => v != null);
-    const cycles = completedIds
+    const cycles = realizedIds
       .map((id) => metricsMap.get(id)?.cycle_time)
       .filter((v): v is number => v != null);
 
@@ -250,8 +276,78 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
       completionRate,
       avgLeadTime: avg(leads),
       avgCycleTime: avg(cycles),
+      leadTimeMin: min(leads),
+      leadTimeMax: max(leads),
+      cycleTimeMin: min(cycles),
+      cycleTimeMax: max(cycles),
     };
   });
+
+  const realizedIdSet = new Set<number>();
+  for (const sprint of sprints) {
+    if (!sprint.start_date || !sprint.finish_date) continue;
+    for (const wi of allWIsForMetrics) {
+      if (isClosedWithinSprint(wi.closed_date ?? null, sprint)) realizedIdSet.add(wi.id);
+    }
+  }
+
+  const leadTimeValues = Array.from(realizedIdSet)
+    .map((id) => metricsMap.get(id)?.lead_time ?? null)
+    .filter((v): v is number => v != null);
+
+  const cycleTimeValues = Array.from(realizedIdSet)
+    .map((id) => metricsMap.get(id)?.cycle_time ?? null)
+    .filter((v): v is number => v != null);
+
+  const leadByWeek = new Map<string, number[]>();
+  for (const sprint of sprints) {
+    if (!sprint.start_date || !sprint.finish_date) continue;
+    for (const wi of allWIsForMetrics) {
+      if (!isClosedWithinSprint(wi.closed_date ?? null, sprint)) continue;
+      if (!wi.closed_date) continue;
+      const lt = metricsMap.get(wi.id)?.lead_time ?? null;
+      if (lt == null) continue;
+      const wk = weekStartIso(wi.closed_date);
+      const arr = leadByWeek.get(wk) ?? [];
+      arr.push(lt);
+      leadByWeek.set(wk, arr);
+    }
+  }
+
+  const leadTimeByDeliveryWeek = Array.from(leadByWeek.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([week, values]) => ({
+      week,
+      count: values.length,
+      p50: pct(values, 50),
+      p85: pct(values, 85),
+      p95: pct(values, 95),
+    }));
+
+  const cycleByWeek = new Map<string, number[]>();
+  for (const sprint of sprints) {
+    if (!sprint.start_date || !sprint.finish_date) continue;
+    for (const wi of allWIsForMetrics) {
+      if (!isClosedWithinSprint(wi.closed_date ?? null, sprint)) continue;
+      if (!wi.closed_date) continue;
+      const ct = metricsMap.get(wi.id)?.cycle_time ?? null;
+      if (ct == null) continue;
+      const wk = weekStartIso(wi.closed_date);
+      const arr = cycleByWeek.get(wk) ?? [];
+      arr.push(ct);
+      cycleByWeek.set(wk, arr);
+    }
+  }
+
+  const cycleTimeByDeliveryWeek = Array.from(cycleByWeek.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([week, values]) => ({
+      week,
+      count: values.length,
+      p50: pct(values, 50),
+      p85: pct(values, 85),
+      p95: pct(values, 95),
+    }));
 
   // Capacity — current sprint
   const currentSprint = sprints.find((s) => s.time_frame === "current") ?? sprints[sprints.length - 1];
@@ -284,6 +380,10 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
     sprints,
     workItems: workItemDtos,
     sprintMetrics,
+    leadTimeValues,
+    cycleTimeValues,
+    leadTimeByDeliveryWeek,
+    cycleTimeByDeliveryWeek,
     currentSprint: currentSprint ?? null,
     memberCapacities,
     individualCapacity,

@@ -18,7 +18,7 @@ import {
   iterationsRepo, workItemsRepo, revisionsRepo,
   metricsRepo, capacityRepo, membersRepo, tasksRepo, syncStateRepo,
 } from "../storage/repositories";
-import { processRevisions, calcCapacityWithDayOffs, weekKey } from "../analytics/engine";
+import { processRevisionsWithDates, calcCapacityWithDayOffs, weekKey } from "../analytics/engine";
 import type { Team, Revision, CapacityRow, Metric } from "../types";
 
 const MAX_CONCURRENT_REVISIONS = 5;
@@ -228,7 +228,7 @@ export async function syncTeam(
       const revs = revisionsRepo.byWorkItem(wi.id);
       if (!revs.length) continue;
       const { timeline, timeByStatus, leadTime, cycleTime, committedDate, inProgressDate, doneDate } =
-        processRevisions(revs);
+        processRevisionsWithDates(revs, { createdDate: wi.created_date ?? null, closedDate: wi.closed_date ?? null });
       metricRows.push({
         work_item_id: wi.id,
         team_id: team.id,

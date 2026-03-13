@@ -20,6 +20,12 @@ export const WORKFLOW_PHASES: Record<string, string[]> = {
 
 export const ALL_STATES = Object.values(WORKFLOW_PHASES).flat();
 
+const CYCLE_START_STATES = [
+  "In Progress",
+  "Active",
+  "Doing",
+];
+
 // ─── processRevisions ────────────────────────────────────────────
 /**
  * Given sorted raw revisions from the DB, build the status timeline
@@ -27,6 +33,21 @@ export const ALL_STATES = Object.values(WORKFLOW_PHASES).flat();
  * Handles back-and-forth transitions correctly by accumulating time.
  */
 export function processRevisions(revisions: Revision[]): {
+  timeline: StatusEntry[];
+  timeByStatus: Record<string, number>;
+  leadTime: number | null;
+  cycleTime: number | null;
+  committedDate: string | null;
+  inProgressDate: string | null;
+  doneDate: string | null;
+} {
+  return processRevisionsWithDates(revisions);
+}
+
+export function processRevisionsWithDates(
+  revisions: Revision[],
+  dates?: { createdDate?: string | null; closedDate?: string | null }
+): {
   timeline: StatusEntry[];
   timeByStatus: Record<string, number>;
   leadTime: number | null;
@@ -75,18 +96,25 @@ export function processRevisions(revisions: Revision[]): {
   const firstDate = (state: string) =>
     sorted.find((r) => r.state === state)?.changed_date ?? null;
 
+  const firstDateIn = (states: string[]) =>
+    sorted.find((r) => r.state && states.includes(r.state))?.changed_date ?? null;
+
   const committedDate   = firstDate("Committed");
-  const inProgressDate  = firstDate("In Progress");
+  const inProgressDate  = firstDateIn(CYCLE_START_STATES) ?? firstDate("In Progress") ?? committedDate;
   const doneDate        = firstDate("Done");
 
+  const createdDate = dates?.createdDate ?? null;
+  const closedDate = dates?.closedDate ?? null;
+  const endDate = closedDate ?? doneDate;
+
   const leadTime =
-    committedDate && doneDate
-      ? differenceInCalendarDays(parseISO(doneDate), parseISO(committedDate))
+    createdDate && endDate
+      ? differenceInCalendarDays(parseISO(endDate), parseISO(createdDate))
       : null;
 
   const cycleTime =
-    inProgressDate && doneDate
-      ? differenceInCalendarDays(parseISO(doneDate), parseISO(inProgressDate))
+    committedDate && endDate
+      ? differenceInCalendarDays(parseISO(endDate), parseISO(committedDate))
       : null;
 
   return { timeline, timeByStatus, leadTime, cycleTime, committedDate, inProgressDate, doneDate };
