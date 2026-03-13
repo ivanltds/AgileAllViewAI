@@ -29,6 +29,46 @@ export const teamsRepo = {
   },
 };
 
+// ─── Work Item Children (PBI -> Task/Bug) ────────────────────────────────────
+
+export const workItemChildrenRepo = {
+  byParents(parentIds: number[]): { parent_id: number; child_id: number; child_type: string | null; title: string | null; assigned_to: string | null; state: string | null; remaining_work: number | null }[] {
+    if (!parentIds.length) return [];
+    const placeholders = parentIds.map(() => "?").join(",");
+    return getDb().prepare(
+      `SELECT parent_id, child_id, child_type, title, assigned_to, state, remaining_work
+       FROM work_item_children
+       WHERE parent_id IN (${placeholders})
+       ORDER BY parent_id ASC, child_id ASC`
+    ).all(...parentIds) as any;
+  },
+  deleteByParents(parentIds: number[]) {
+    if (!parentIds.length) return;
+    const placeholders = parentIds.map(() => "?").join(",");
+    getDb().prepare(
+      `DELETE FROM work_item_children WHERE parent_id IN (${placeholders})`
+    ).run(...parentIds);
+  },
+  upsertBulk(rows: { parent_id: number; child_id: number; child_type?: string | null; title?: string | null; assigned_to?: string | null; state?: string | null; remaining_work?: number | null }[]) {
+    if (!rows.length) return;
+    const stmt = getDb().prepare(`
+      INSERT INTO work_item_children (parent_id, child_id, child_type, title, assigned_to, state, remaining_work)
+      VALUES (@parent_id, @child_id, @child_type, @title, @assigned_to, @state, @remaining_work)
+      ON CONFLICT(parent_id, child_id) DO UPDATE SET
+        child_type=excluded.child_type,
+        title=excluded.title,
+        assigned_to=excluded.assigned_to,
+        state=excluded.state,
+        remaining_work=excluded.remaining_work,
+        fetched_at=datetime('now')
+    `);
+    const insert = getDb().transaction((items: typeof rows) => {
+      for (const r of items) stmt.run(r as any);
+    });
+    insert(rows as any);
+  },
+};
+
 // ─── Iterations ───────────────────────────────────────────────────────────────
 
 export const iterationsRepo = {
@@ -212,10 +252,17 @@ export const tasksRepo = {
   },
   upsertBulk(rows: Task[]) {
     const stmt = getDb().prepare(`
-      INSERT INTO tasks (id, team_id, assigned_to, remaining_work, changed_date, iteration_name, week_key)
-      VALUES (@id, @team_id, @assigned_to, @remaining_work, @changed_date, @iteration_name, @week_key)
+      INSERT INTO tasks (id, team_id, assigned_to, state, remaining_work, completed_work, original_estimate, changed_date, iteration_name, week_key)
+      VALUES (@id, @team_id, @assigned_to, @state, @remaining_work, @completed_work, @original_estimate, @changed_date, @iteration_name, @week_key)
       ON CONFLICT(id) DO UPDATE SET
-        remaining_work=excluded.remaining_work, changed_date=excluded.changed_date
+        assigned_to=excluded.assigned_to,
+        state=excluded.state,
+        remaining_work=excluded.remaining_work,
+        completed_work=excluded.completed_work,
+        original_estimate=excluded.original_estimate,
+        changed_date=excluded.changed_date,
+        iteration_name=excluded.iteration_name,
+        week_key=excluded.week_key
     `);
     const insert = getDb().transaction((items: Task[]) => {
       for (const i of items) stmt.run(i);

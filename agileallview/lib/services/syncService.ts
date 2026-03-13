@@ -16,7 +16,7 @@
 import { AzureConnector } from "../azure/connector";
 import {
   iterationsRepo, workItemsRepo, revisionsRepo,
-  metricsRepo, capacityRepo, membersRepo, tasksRepo, syncStateRepo,
+  metricsRepo, capacityRepo, membersRepo, tasksRepo, syncStateRepo, workItemChildrenRepo,
 } from "../storage/repositories";
 import { processRevisionsWithDates, calcCapacityWithDayOffs, weekKey } from "../analytics/engine";
 import type { Team, Revision, CapacityRow, Metric } from "../types";
@@ -61,6 +61,17 @@ const DEFAULT_PBI_WORK_ITEM_TYPES = [
 const TASK_FIELDS = [
   "System.Id", "System.State", "System.AssignedTo", "System.ChangedDate",
   "System.IterationPath", "Microsoft.VSTS.Scheduling.RemainingWork",
+  "Microsoft.VSTS.Scheduling.CompletedWork",
+  "Microsoft.VSTS.Scheduling.OriginalEstimate",
+];
+
+const CHILD_FIELDS = [
+  "System.Id",
+  "System.Title",
+  "System.WorkItemType",
+  "System.State",
+  "System.AssignedTo",
+  "Microsoft.VSTS.Scheduling.RemainingWork",
 ];
 
 export type ProgressCallback = (step: string, msg: string, pct: number) => void;
@@ -139,9 +150,36 @@ export async function syncTeam(
 
     const pbiIds = await wiqlPbiIdsWithFallback(api, team.org, team.project, dateFilter);
 
+    // For incremental syncs, a PBI may have children (Tasks/Bugs) even if it
+    // didn't change recently. To keep the expandable view accurate without
+    // forcing a full sync, also fetch currently-open PBIs and refresh their
+    // relations.
+    const openPbiIds = lastSync
+      ? await wiqlOpenPbiIdsWithFallback(api, team.org, team.project)
+      : [];
+
+    // Extra safety: some orgs use different backlog item types / states.
+    // If WIQL misses them, we still want child relations for items already
+    // present locally and currently open.
+    const localOpenIds = lastSync
+      ? workItemsRepo
+          .byTeam(team.id)
+          .filter((w) => {
+            const type = (w.work_item_type ?? "").trim();
+            if (type === "Task" || type === "Bug") return false;
+            const st = (w.state ?? "").trim();
+            if (!st) return true;
+            return st !== "Done" && st !== "Removed";
+          })
+          .slice(0, 1500)
+          .map((w) => w.id)
+      : [];
+
+    const allPbiIds = Array.from(new Set<number>([...pbiIds, ...openPbiIds, ...localOpenIds]));
+
     // ── 5. Work item details ──────────────────────────────────────
-    prog("workitems", `Buscando detalhes de ${pbiIds.length} PBIs...`, 25);
-    const rawItems = await getWorkItemsBatchWithFallback(api, team.org, pbiIds);
+    prog("workitems", `Buscando detalhes de ${allPbiIds.length} PBIs...`, 25);
+    const rawItems = await getWorkItemsBatchWithFallback(api, team.org, allPbiIds, { expandRelations: true });
 
     workItemsRepo.upsertBulk(rawItems.map((wi) => ({
       id: wi.id,
@@ -177,6 +215,81 @@ export async function syncTeam(
       ]),
 
     })));
+
+    // ── 5b. Children (Tasks/Bugs) via relations ───────────────────
+    prog("children", "Buscando Tasks/Bugs filhos dos PBIs...", 30);
+    let totalRelations = 0;
+    let hierarchyRelations = 0;
+    const parentToChildren = new Map<number, number[]>();
+    const allChildIds = new Set<number>();
+    for (const wi of rawItems) {
+      const rels = wi.relations ?? [];
+      totalRelations += rels.length;
+      for (const r of rels) {
+        const rel = (r.rel ?? "").toLowerCase();
+        if (rel !== "system.linktypes.hierarchy-forward") continue;
+        hierarchyRelations++;
+        const id = extractWorkItemIdFromUrl(r.url);
+        if (!id) continue;
+        const arr = parentToChildren.get(wi.id) ?? [];
+        arr.push(id);
+        parentToChildren.set(wi.id, arr);
+        allChildIds.add(id);
+      }
+    }
+
+    const parentIds = Array.from(parentToChildren.keys());
+    if (parentIds.length) {
+      workItemChildrenRepo.deleteByParents(parentIds);
+    }
+
+    const childIds = Array.from(allChildIds);
+    if (childIds.length) {
+      const rawChildren = await api.getWorkItemsBatch(team.org, childIds, CHILD_FIELDS);
+      const childMap = new Map(rawChildren.map((c) => [c.id, c] as const));
+
+      const rows: { parent_id: number; child_id: number; child_type?: string | null; title?: string | null; assigned_to?: string | null; state?: string | null; remaining_work?: number | null }[] = [];
+      for (const [parentId, ids] of Array.from(parentToChildren.entries())) {
+        for (const childId of Array.from(new Set(ids))) {
+          const c = childMap.get(childId);
+          if (!c) continue;
+          const type = str(c.fields["System.WorkItemType"]) ?? null;
+          // Only keep Tasks/Bugs
+          if (type !== "Task" && type !== "Bug") continue;
+          rows.push({
+            parent_id: parentId,
+            child_id: childId,
+            child_type: type,
+            title: str(c.fields["System.Title"]) ?? null,
+            assigned_to: assignedTo(c.fields["System.AssignedTo"]) ?? null,
+            state: str(c.fields["System.State"]) ?? null,
+            remaining_work: num(c.fields["Microsoft.VSTS.Scheduling.RemainingWork"]),
+          });
+        }
+      }
+
+      const nullState = rows.filter((r) => !String(r.state ?? "").trim()).length;
+      const byState: Record<string, number> = {};
+      for (const r of rows) {
+        const s = String(r.state ?? "").trim() || "(null)";
+        byState[s] = (byState[s] ?? 0) + 1;
+      }
+      console.log(
+        `[children] stateDistribution null=${nullState}/${rows.length} top=${Object.entries(byState)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 6)
+          .map(([s, n]) => `${s}:${n}`)
+          .join(", ")}`
+      );
+      workItemChildrenRepo.upsertBulk(rows);
+      console.log(
+        `[children] rawItems=${rawItems.length} totalRelations=${totalRelations} hierarchyRelations=${hierarchyRelations} parentsWithChildren=${parentToChildren.size} childIds=${childIds.length} rowsInserted=${rows.length}`
+      );
+    } else {
+      console.log(
+        `[children] rawItems=${rawItems.length} totalRelations=${totalRelations} hierarchyRelations=${hierarchyRelations} parentsWithChildren=${parentToChildren.size} childIds=0 rowsInserted=0`
+      );
+    }
 
     // ── 6. Revisions (throttled) ──────────────────────────────────
     prog("revisions", `Processando revisões de ${pbiIds.length} itens...`, 35);
@@ -247,13 +360,17 @@ export async function syncTeam(
 
     // ── 8. Tasks for individual capacity ─────────────────────────
     prog("tasks", "Buscando Tasks para capacidade individual...", 85);
-    const fourWeeksAgo = new Date(Date.now() - 28 * 86_400_000).toISOString().slice(0, 10);
+    const nonFutureSprints = iterations.filter((s) => s.time_frame !== "future");
+    const lastSix = nonFutureSprints.slice(-6);
+    const fallbackSince = new Date(Date.now() - 28 * 86_400_000).toISOString().slice(0, 10);
+    const sinceDate = (lastSix.find((s) => s.start_date)?.start_date ?? lastSix[0]?.start_date ?? fallbackSince) as string;
+
     const taskQuery = `
       SELECT [System.Id] FROM WorkItems
       WHERE [System.WorkItemType] = 'Task'
-        AND [System.State] = 'Done'
         AND [System.TeamProject] = '${team.project}'
-        AND [System.ChangedDate] >= '${fourWeeksAgo}'
+        AND [System.ChangedDate] >= '${sinceDate}'
+      ORDER BY [System.ChangedDate] DESC
     `;
     const taskIds = await api.wiql(team.org, team.project, taskQuery).catch(() => [] as number[]);
     if (taskIds.length) {
@@ -262,7 +379,10 @@ export async function syncTeam(
         id: t.id,
         team_id: team.id,
         assigned_to:    assignedTo(t.fields["System.AssignedTo"]),
+        state:          str(t.fields["System.State"]),
         remaining_work: num(t.fields["Microsoft.VSTS.Scheduling.RemainingWork"]) ?? 0,
+        completed_work: num(t.fields["Microsoft.VSTS.Scheduling.CompletedWork"]) ?? 0,
+        original_estimate: num(t.fields["Microsoft.VSTS.Scheduling.OriginalEstimate"]) ?? 0,
         changed_date:   str(t.fields["System.ChangedDate"]),
         iteration_name: lastSegment(str(t.fields["System.IterationPath"])),
         week_key:       weekKey(str(t.fields["System.ChangedDate"]) ?? new Date().toISOString()),
@@ -364,17 +484,58 @@ async function wiqlPbiIdsWithFallback(
   return await api.wiql(org, project, lastWiql);
 }
 
+async function wiqlOpenPbiIdsWithFallback(
+  api: AzureConnector,
+  org: string,
+  project: string
+): Promise<number[]> {
+  for (const typeName of DEFAULT_PBI_WORK_ITEM_TYPES) {
+    const wiqlQuery = `
+      SELECT [System.Id] FROM WorkItems
+      WHERE [System.TeamProject] = '${project}'
+        AND [System.WorkItemType] = '${typeName}'
+        AND [System.State] <> 'Done'
+        AND [System.State] <> 'Removed'
+      ORDER BY [System.ChangedDate] DESC
+    `;
+    try {
+      const ids = await api.wiql(org, project, wiqlQuery);
+      if (ids.length) return ids;
+    } catch (e) {
+      console.warn(`WIQL open items failed for work item type '${typeName}':`, e);
+    }
+  }
+
+  const lastWiql = `
+    SELECT [System.Id] FROM WorkItems
+    WHERE [System.TeamProject] = '${project}'
+      AND [System.WorkItemType] = 'Product Backlog Item'
+      AND [System.State] <> 'Done'
+      AND [System.State] <> 'Removed'
+    ORDER BY [System.ChangedDate] DESC
+  `;
+  return await api.wiql(org, project, lastWiql);
+}
+
 async function getWorkItemsBatchWithFallback(
   api: AzureConnector,
   org: string,
-  ids: number[]
+  ids: number[],
+  options?: { expandRelations?: boolean }
 ) {
   try {
-    return await api.getWorkItemsBatch(org, ids, [...PBI_CORE_FIELDS, ...PBI_OPTIONAL_FIELDS]);
+    return await api.getWorkItemsBatch(org, ids, [...PBI_CORE_FIELDS, ...PBI_OPTIONAL_FIELDS], options);
   } catch (e) {
     console.warn("getWorkItemsBatch failed with optional fields; retrying with core fields only:", e);
-    return await api.getWorkItemsBatch(org, ids, PBI_CORE_FIELDS);
+    return await api.getWorkItemsBatch(org, ids, PBI_CORE_FIELDS, options);
   }
+}
+
+function extractWorkItemIdFromUrl(url: string): number | null {
+  const m = url.match(/workItems\/(\d+)/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
 }
 
 function firstTextField(fields: Record<string, unknown>, keys: string[]): string | null {

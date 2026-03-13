@@ -105,15 +105,53 @@ export class AzureConnector {
   }
 
   // ─── 7. Work items in batch ────────────────────────────────────
-  async getWorkItemsBatch(org: string, ids: number[], fields: string[]): Promise<AzureWorkItem[]> {
+  async getWorkItemsBatch(
+    org: string,
+    ids: number[],
+    fields: string[],
+    options?: { expandRelations?: boolean }
+  ): Promise<AzureWorkItem[]> {
     if (!ids.length) return [];
     const results: AzureWorkItem[] = [];
     const fieldParam = fields.join(",");
+    const expandRelations = Boolean(options?.expandRelations);
     for (let i = 0; i < ids.length; i += BATCH_SIZE) {
-      const chunk = ids.slice(i, i + BATCH_SIZE).join(",");
-      const data = await this.request<{ value: AzureWorkItem[] }>(
-        `https://dev.azure.com/${enc(org)}/_apis/wit/workitems?ids=${chunk}&fields=${fieldParam}&api-version=${API_VERSION}`
+      const chunkIds = ids.slice(i, i + BATCH_SIZE);
+
+      // Azure DevOps API limitation: GET /wit/workitems does NOT allow combining
+      // fields=... with $expand=relations. When relations are needed, use the
+      // batch endpoint.
+      if (!expandRelations) {
+        const data = await this.request<{ value: AzureWorkItem[] }>(
+          `https://dev.azure.com/${enc(org)}/_apis/wit/workitems?ids=${chunkIds.join(",")}&fields=${fieldParam}&api-version=${API_VERSION}`
+        );
+        results.push(...(data.value ?? []));
+        continue;
+      }
+
+      // Preferred path: batch endpoint with expand Relations.
+      let data = await this.request<{ value: AzureWorkItem[] }>(
+        `https://dev.azure.com/${enc(org)}/_apis/wit/workitemsbatch?api-version=${API_VERSION}`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            ids: chunkIds,
+            fields,
+            expand: "Relations",
+          }),
+        }
       );
+
+      const batchItems = data.value ?? [];
+      const totalRelations = batchItems.reduce((acc, wi) => acc + (wi.relations?.length ?? 0), 0);
+      if (totalRelations === 0) {
+        // Fallback: some tenants / API versions don't return relations via workitemsbatch.
+        // GET /workitems supports $expand=relations but cannot be combined with fields.
+        data = await this.request<{ value: AzureWorkItem[] }>(
+          `https://dev.azure.com/${enc(org)}/_apis/wit/workitems?ids=${chunkIds.join(",")}&$expand=relations&api-version=${API_VERSION}`
+        );
+      }
+
       results.push(...(data.value ?? []));
     }
     return results;

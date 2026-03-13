@@ -407,9 +407,108 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
     );
   }
 
+  const allTasks = tasksRepo.byTeam(teamId);
+  const nonFutureForCapacity = allSprints
+    .filter((s) => s.time_frame !== "future")
+    .filter((s) => Boolean(s.name))
+    .slice(-4);
+
+  const deliveredHoursBySprintAndPerson = new Map<string, number>();
+  for (const sp of nonFutureForCapacity) {
+    const tasksInSprint = allTasks.filter((t: any) => {
+      if ((t.iteration_name ?? "") !== sp.name) return false;
+      const st = String(t.state ?? "").trim();
+      if (!st) return false;
+      return st === "Done" || st === "Closed" || st === "Resolved";
+    });
+
+    for (const t of tasksInSprint) {
+      const person = (t.assigned_to ?? "—") as string;
+      const key = `${sp.id}::${person}`;
+
+      const deliveredHrs =
+        (t.completed_work ?? 0) > 0
+          ? (t.completed_work ?? 0)
+          : (t.original_estimate ?? 0) > 0
+            ? (t.original_estimate ?? 0)
+            : (t.remaining_work ?? 0);
+      deliveredHoursBySprintAndPerson.set(
+        key,
+        (deliveredHoursBySprintAndPerson.get(key) ?? 0) + deliveredHrs
+      );
+    }
+  }
+
+  const capacityBySprintAndPerson = new Map<string, number>();
+  for (const sp of nonFutureForCapacity) {
+    const capRows = capacityRepo.byIteration(teamId, sp.id);
+    const caps = calcCapacityWithDayOffs(
+      capRows.map((c) => ({
+        memberId:   c.member_id,
+        memberName: c.member_name,
+        activities: JSON.parse(c.activities || "[]"),
+        daysOff:    JSON.parse(c.days_off    || "[]"),
+        totalCapacity: c.total_capacity,
+        realCapacity:  c.real_capacity,
+        workingDays: 0,
+        dayOffCount: 0,
+      })),
+      sp.start_date,
+      sp.finish_date
+    );
+    for (const c of caps) {
+      const fallback = capRows.find((r) => r.member_name === c.memberName)?.real_capacity ?? 0;
+      capacityBySprintAndPerson.set(`${sp.id}::${c.memberName}`, (c.realCapacity ?? 0) || fallback);
+    }
+  }
+
+  const memberNames = new Set<string>();
+  for (const m of memberCapacities) memberNames.add(m.memberName);
+  for (const k of Array.from(capacityBySprintAndPerson.keys())) memberNames.add(k.split("::")[1] ?? "—");
+  for (const k of Array.from(deliveredHoursBySprintAndPerson.keys())) memberNames.add(k.split("::")[1] ?? "—");
+
+  const capSummary = Array.from(memberNames)
+    .filter((n) => n && n !== "—")
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => {
+      const curCap = currentSprint ? (capacityBySprintAndPerson.get(`${currentSprint.id}::${name}`) ?? 0) : 0;
+      const curDelivered = currentSprint ? (deliveredHoursBySprintAndPerson.get(`${currentSprint.id}::${name}`) ?? 0) : 0;
+
+      const deliveredArr: number[] = [];
+      const devArr: number[] = [];
+      for (const sp of nonFutureForCapacity) {
+        const delivered = deliveredHoursBySprintAndPerson.get(`${sp.id}::${name}`) ?? 0;
+        const cap = capacityBySprintAndPerson.get(`${sp.id}::${name}`) ?? 0;
+        deliveredArr.push(delivered);
+        if (cap > 0) devArr.push(((delivered - cap) / cap) * 100);
+      }
+
+      const avgDelivered = deliveredArr.length
+        ? deliveredArr.reduce((s, v) => s + v, 0) / deliveredArr.length
+        : 0;
+      const avgDeviationPct = devArr.length
+        ? devArr.reduce((s, v) => s + v, 0) / devArr.length
+        : 0;
+
+      return {
+        name,
+        sprintCapacityHours: curCap,
+        deliveredHours: curDelivered,
+        avgDeliveredLast4Sprints: avgDelivered,
+        avgPlanningDeviationPct: avgDeviationPct,
+      };
+    });
+
   // Individual capacity from tasks
-  const tasks = tasksRepo.byTeam(teamId);
-  const individualCapacity = calcIndividualCapacity(tasks);
+  const tasks = currentSprint?.name
+    ? allTasks.filter((t) => (t.iteration_name ?? "") === currentSprint.name)
+    : allTasks;
+  const openTasks = tasks.filter((t) => {
+    const st = (t.state ?? "").trim();
+    if (!st) return true;
+    return st !== "Done" && st !== "Removed";
+  });
+  const individualCapacity = calcIndividualCapacity(openTasks);
 
   return NextResponse.json({
     team: { id: team.id, name: team.name, org: team.org, project: team.project, teamName: team.team_name },
@@ -423,6 +522,7 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
     cycleTimeByDeliveryWeek,
     currentSprint: currentSprint ?? null,
     memberCapacities,
+    capacitySummary: capSummary,
     individualCapacity,
   });
 }

@@ -9,9 +9,11 @@ const ACTIVITY_COLORS: Record<string,string> = {
 
 type MC = { memberId:string; memberName:string; activities:{name:string;capacityPerDay:number}[]; daysOff:{start:string;end:string}[]; totalCapacity:number; realCapacity:number; workingDays:number; dayOffCount:number };
 type IC = { name:string; currentWeek:number; avgWeekly:number; variance:number };
+type CS = { name: string; sprintCapacityHours: number; deliveredHours: number; avgDeliveredLast4Sprints: number; avgPlanningDeviationPct: number };
 
 export function CapacityTab({ data }: { data: Record<string,unknown>|null }) {
   const members = (data?.memberCapacities as MC[]) ?? [];
+  const capSum  = (data?.capacitySummary as CS[]) ?? [];
   const indCap  = (data?.individualCapacity as IC[]) ?? [];
   const sprint  = data?.currentSprint as { name?:string; start_date?:string; finish_date?:string } | null;
 
@@ -100,8 +102,53 @@ export function CapacityTab({ data }: { data: Record<string,unknown>|null }) {
         </div>
       </div>
 
-      {/* Individual capacity */}
-      {indCap.length > 0 && (
+      {/* Capacity summary */}
+      {capSum.length > 0 && (
+        <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
+          <div className="text-sm font-semibold mb-4">Resumo por membro</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-[var(--bg3)]">
+                  {[
+                    "Membro",
+                    "Capacidade registrada (sprint)",
+                    "Tarefas entregues (sprint)",
+                    "Média entregues (últimas 4 sprints)",
+                    "Desvio médio vs capacidade",
+                  ].map((h) => (
+                    <th key={h} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)]">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {capSum.map((m) => {
+                  const dev = m.avgPlanningDeviationPct ?? 0;
+                  const devClass = dev >= 0
+                    ? "bg-[rgba(34,197,94,.1)] text-[var(--success)]"
+                    : "bg-[rgba(239,68,68,.1)] text-[var(--danger)]";
+                  return (
+                    <tr key={m.name} className="border-b border-[var(--border)] hover:bg-[var(--bg3)] transition-colors">
+                      <td className="px-3 py-2.5 font-medium text-[var(--text)]">{m.name}</td>
+                      <td className="px-3 py-2.5 font-mono text-[var(--text2)]">{(m.sprintCapacityHours ?? 0).toFixed(0)}h</td>
+                      <td className="px-3 py-2.5 font-mono font-bold text-[var(--accent)]">{(m.deliveredHours ?? 0).toFixed(0)}h</td>
+                      <td className="px-3 py-2.5 font-mono text-[var(--text2)]">{(m.avgDeliveredLast4Sprints ?? 0).toFixed(0)}h</td>
+                      <td className="px-3 py-2.5">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold font-mono ${devClass}`}>
+                          {dev >= 0 ? "+" : ""}{dev.toFixed(0)}%
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Fallback: keep old view if summary isn't available */}
+      {capSum.length === 0 && indCap.length > 0 && (
         <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
           <div className="text-sm font-semibold mb-4">Capacidade individual — últimas 4 semanas</div>
           <div className="overflow-x-auto">

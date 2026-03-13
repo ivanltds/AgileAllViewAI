@@ -31,6 +31,27 @@ export function getDb(): Database.Database {
   ensureColumn(_db, "work_items", "board_column", "TEXT");
   ensureColumn(_db, "work_items", "dor_checklist", "TEXT");
   ensureColumn(_db, "work_items", "dod_checklist", "TEXT");
+  ensureColumn(_db, "work_item_children", "assigned_to", "TEXT");
+  ensureColumn(_db, "work_item_children", "state", "TEXT");
+  ensureColumn(_db, "tasks", "state", "TEXT");
+  ensureColumn(_db, "tasks", "completed_work", "REAL");
+  ensureColumn(_db, "tasks", "original_estimate", "REAL");
+
+  // Best-effort: ensure children table exists for older DBs
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS work_item_children (
+      parent_id      INTEGER NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+      child_id       INTEGER NOT NULL,
+      child_type     TEXT,
+      title          TEXT,
+      assigned_to    TEXT,
+      state          TEXT,
+      remaining_work REAL,
+      fetched_at     TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (parent_id, child_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_wic_parent ON work_item_children(parent_id);
+  `);
 
   return _db;
 }

@@ -1,5 +1,6 @@
 "use client";
 import { KpiCard } from "@/components/ui/KpiCard";
+import { FlowBar } from "@/components/ui/FlowBar";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid, LineChart, Line, BarChart, Bar } from "recharts";
 import { useMemo, useState } from "react";
 
@@ -23,6 +24,33 @@ const WORKFLOW_PHASES: Record<string, string[]> = {
   pronto:         ["Ready"],
   concluido:      ["Done"],
   cancelado:      ["Removed"],
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  // Planning
+  New: "#6b7280",
+  "To Do": "#6b7280",
+  Design: "#6b7280",
+  Planned: "#6b7280",
+  Planning: "#6b7280",
+  // Approved
+  Approved: "#e5e7eb",
+  // In progress
+  Committed: "#3b82f6",
+  "In Progress": "#3b82f6",
+  Active: "#3b82f6",
+  Doing: "#3b82f6",
+  // Testing
+  Testing: "#f97316",
+  Test: "#f97316",
+  QA: "#f97316",
+  Ready: "#f97316",
+  // Done
+  Done: "#22c55e",
+  Closed: "#22c55e",
+  Resolved: "#22c55e",
+  // Removed
+  Removed: "#ef4444",
 };
 
 function sprintLabel(sprintName: string): string {
@@ -133,6 +161,29 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
       Throughput: Number(s.throughput ?? 0),
     }));
   }, [sprintMetrics]);
+
+  const avgDaysByStatus = useMemo(() => {
+    const agg: Record<string, { total: number; items: number }> = {};
+    for (const w of workItems) {
+      const tbs = (w as any).timeByStatus ?? {};
+      for (const [st, days] of Object.entries(tbs)) {
+        const d = Number(days);
+        if (!Number.isFinite(d) || d <= 0) continue;
+        if (!agg[st]) agg[st] = { total: 0, items: 0 };
+        agg[st].total += d;
+        agg[st].items += 1;
+      }
+    }
+    const rows = Object.entries(agg)
+      .map(([state, a]) => ({
+        state,
+        avgDays: a.items ? a.total / a.items : 0,
+        items: a.items,
+      }))
+      .sort((a, b) => b.avgDays - a.avgDays);
+    const max = Math.max(1, ...rows.map((r) => r.avgDays));
+    return { rows, max };
+  }, [workItems]);
 
   return (
     <div>
@@ -334,6 +385,26 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
           </div>
         </div>
       </div>
+
+      {avgDaysByStatus.rows.length > 0 && (
+        <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5 mt-4">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <div className="text-sm font-semibold">Visão geral — média de dias por status</div>
+            <div className="text-[10px] text-[var(--text2)] font-mono">PBIs considerados: {workItems.length}</div>
+          </div>
+          <div>
+            {avgDaysByStatus.rows.map((r: { state: string; avgDays: number; items: number }) => (
+              <FlowBar
+                key={r.state}
+                label={`${r.state} (${r.items})`}
+                value={r.avgDays}
+                max={avgDaysByStatus.max}
+                color={STATUS_COLORS[r.state] ?? "#6b7280"}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

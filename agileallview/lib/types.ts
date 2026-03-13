@@ -107,7 +107,10 @@ export interface Task {
   id: number;
   team_id: string;
   assigned_to?: string;
+  state?: string;
   remaining_work?: number;
+  completed_work?: number;
+  original_estimate?: number;
   changed_date?: string;
   iteration_name?: string;
   week_key?: string;

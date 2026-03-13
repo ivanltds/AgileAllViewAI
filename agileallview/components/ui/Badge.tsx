@@ -1,21 +1,38 @@
 "use client";
 import { cn } from "./cn";
 
-const STATE_COLORS: Record<string, string> = {
-  New: "#6b7280", Approved: "#8b5cf6", Design: "#a78bfa", "To Do": "#3b82f6",
-  Committed: "#f59e0b", "In Progress": "#f97316", Testing: "#06b6d4",
-  "Wait Client": "#ec4899", Ready: "#10b981", Done: "#22c55e", Removed: "#ef4444",
+const PLANNING_STATES = new Set(["New", "To Do", "Design", "Planned", "Planning"]);
+const APPROVED_STATES = new Set(["Approved"]);
+const INPROGRESS_STATES = new Set(["In Progress", "Active", "Doing", "Committed"]);
+const TESTING_STATES = new Set(["Testing", "Test", "QA", "Ready"]);
+const DONE_STATES = new Set(["Done", "Closed", "Resolved"]);
+const REMOVED_STATES = new Set(["Removed"]);
+
+const stateColor = (state?: string): string => {
+  const s = String(state ?? "").trim();
+  if (APPROVED_STATES.has(s)) return "#e5e7eb";
+  if (INPROGRESS_STATES.has(s)) return "#3b82f6";
+  if (TESTING_STATES.has(s)) return "#f97316";
+  if (DONE_STATES.has(s)) return "#22c55e";
+  if (REMOVED_STATES.has(s)) return "#ef4444";
+  if (PLANNING_STATES.has(s)) return "#6b7280";
+  return "#6b7280";
 };
 
 export function StateBadge({ state }: { state?: string }) {
-  const c = state ? (STATE_COLORS[state] ?? "#6b7280") : "#6b7280";
+  const s = String(state ?? "").trim();
+  const c = stateColor(s);
+  const approved = APPROVED_STATES.has(s);
   return (
     <span
-      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold"
-      style={{ background: c + "20", color: c }}
+      className={cn(
+        "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold",
+        approved ? "border border-[rgba(255,255,255,.22)]" : ""
+      )}
+      style={{ background: approved ? "rgba(255,255,255,.08)" : c + "20", color: approved ? "var(--text)" : c }}
     >
-      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: c }} />
-      {state ?? "—"}
+      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: approved ? "#e5e7eb" : c }} />
+      {s || "—"}
     </span>
   );
 }

@@ -60,6 +60,20 @@ CREATE INDEX IF NOT EXISTS idx_wi_state   ON work_items(state);
 CREATE INDEX IF NOT EXISTS idx_wi_iter    ON work_items(iteration_name);
 CREATE INDEX IF NOT EXISTS idx_wi_changed ON work_items(changed_date);
 
+-- ── Work Item Children (PBI -> Task/Bug) ─────────────────────────
+CREATE TABLE IF NOT EXISTS work_item_children (
+  parent_id      INTEGER NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+  child_id       INTEGER NOT NULL,
+  child_type     TEXT,
+  title          TEXT,
+  assigned_to    TEXT,
+  state          TEXT,
+  remaining_work REAL,
+  fetched_at     TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (parent_id, child_id)
+);
+CREATE INDEX IF NOT EXISTS idx_wic_parent ON work_item_children(parent_id);
+
 -- ── Revisions (raw state history) ────────────────────────────────
 CREATE TABLE IF NOT EXISTS revisions (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,7 +135,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   id              INTEGER PRIMARY KEY,
   team_id         TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
   assigned_to     TEXT,
+  state           TEXT,
   remaining_work  REAL DEFAULT 0,
+  completed_work  REAL DEFAULT 0,
+  original_estimate REAL DEFAULT 0,
   changed_date    TEXT,
   iteration_name  TEXT,
   week_key        TEXT   -- ISO Monday date e.g. "2024-01-15"
