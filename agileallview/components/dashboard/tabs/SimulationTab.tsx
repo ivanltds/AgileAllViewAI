@@ -36,7 +36,7 @@ export function SimulationTab({ data, allTeams, teamId }: {
   // Other teams use placeholder data until synced
   const otherPools = otherTeams.map((t, ti) => ({
     team: t, accent: TEAM_ACCENTS[ti % TEAM_ACCENTS.length],
-    members: ((t as Record<string,unknown>).indCap as IC[] ?? []).map((m) => ({
+    members: (((t as unknown as { indCap?: IC[] }).indCap) ?? []).map((m) => ({
       ...m, teamId: t.id, teamName: t.name, key: `${t.id}::${m.name}`,
     })),
   }));
@@ -49,7 +49,7 @@ export function SimulationTab({ data, allTeams, teamId }: {
     acc[m.activity ?? "Development"] = (acc[m.activity ?? "Development"] ?? 0) + (m.avgWeekly ?? 0);
     return acc;
   }, {});
-  const teamNames = [...new Set(selMembers.map((m) => m.teamName))];
+  const teamNames = Array.from(new Set(selMembers.map((m) => m.teamName)));
 
   const saveScenario = () => {
     if (!selMembers.length) return;
