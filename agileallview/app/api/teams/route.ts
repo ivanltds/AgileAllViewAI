@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { teamsRepo, syncStateRepo, workItemsRepo, metricsRepo, iterationsRepo } from "@/lib/storage/repositories";
+import { teamsRepo, syncStateRepo, workItemsRepo, metricsRepo, iterationsRepo, workItemChildrenRepo } from "@/lib/storage/repositories";
 
 export async function GET() {
   const teams = teamsRepo.all();
@@ -37,6 +37,8 @@ export async function GET() {
           ? Math.round((recentDone.length / recentPlanned.length) * 100)
           : 0,
         totalPbis: pbis.length,
+        openBugs: workItemChildrenRepo.countOpenBugs(t.id),
+        openDefects: workItemsRepo.countOpenDefectsIncludingChildren(t.id),
       },
     };
   });

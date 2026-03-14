@@ -32,11 +32,11 @@ export const teamsRepo = {
 // ─── Work Item Children (PBI -> Task/Bug) ────────────────────────────────────
 
 export const workItemChildrenRepo = {
-  byParents(parentIds: number[]): { parent_id: number; child_id: number; child_type: string | null; title: string | null; assigned_to: string | null; state: string | null; remaining_work: number | null }[] {
+  byParents(parentIds: number[]): { parent_id: number; child_id: number; child_type: string | null; title: string | null; assigned_to: string | null; state: string | null; priority: number | null; severity: string | null; remaining_work: number | null }[] {
     if (!parentIds.length) return [];
     const placeholders = parentIds.map(() => "?").join(",");
     return getDb().prepare(
-      `SELECT parent_id, child_id, child_type, title, assigned_to, state, remaining_work
+      `SELECT parent_id, child_id, child_type, title, assigned_to, state, priority, severity, remaining_work
        FROM work_item_children
        WHERE parent_id IN (${placeholders})
        ORDER BY parent_id ASC, child_id ASC`
@@ -49,16 +49,18 @@ export const workItemChildrenRepo = {
       `DELETE FROM work_item_children WHERE parent_id IN (${placeholders})`
     ).run(...parentIds);
   },
-  upsertBulk(rows: { parent_id: number; child_id: number; child_type?: string | null; title?: string | null; assigned_to?: string | null; state?: string | null; remaining_work?: number | null }[]) {
+  upsertBulk(rows: { parent_id: number; child_id: number; child_type?: string | null; title?: string | null; assigned_to?: string | null; state?: string | null; priority?: number | null; severity?: string | null; remaining_work?: number | null }[]) {
     if (!rows.length) return;
     const stmt = getDb().prepare(`
-      INSERT INTO work_item_children (parent_id, child_id, child_type, title, assigned_to, state, remaining_work)
-      VALUES (@parent_id, @child_id, @child_type, @title, @assigned_to, @state, @remaining_work)
+      INSERT INTO work_item_children (parent_id, child_id, child_type, title, assigned_to, state, priority, severity, remaining_work)
+      VALUES (@parent_id, @child_id, @child_type, @title, @assigned_to, @state, @priority, @severity, @remaining_work)
       ON CONFLICT(parent_id, child_id) DO UPDATE SET
         child_type=excluded.child_type,
         title=excluded.title,
         assigned_to=excluded.assigned_to,
         state=excluded.state,
+        priority=excluded.priority,
+        severity=excluded.severity,
         remaining_work=excluded.remaining_work,
         fetched_at=datetime('now')
     `);
@@ -66,6 +68,18 @@ export const workItemChildrenRepo = {
       for (const r of items) stmt.run(r as any);
     });
     insert(rows as any);
+  },
+
+  countOpenBugs(teamId: string): number {
+    const row = getDb().prepare(
+      `SELECT COUNT(1) as c
+       FROM work_item_children c
+       JOIN work_items w ON w.id = c.parent_id
+       WHERE w.team_id = ?
+         AND c.child_type = 'Bug'
+         AND (c.state IS NULL OR (c.state <> 'Done' AND c.state <> 'Removed'))`
+    ).get(teamId) as { c: number };
+    return row?.c ?? 0;
   },
 };
 
@@ -99,6 +113,38 @@ export const workItemsRepo = {
   byTeam(teamId: string): WorkItem[] {
     return getDb().prepare("SELECT * FROM work_items WHERE team_id = ?").all(teamId) as WorkItem[];
   },
+
+  countOpenDefects(teamId: string): number {
+    const row = getDb().prepare(
+      `SELECT COUNT(1) as c
+       FROM work_items
+       WHERE team_id = ?
+         AND (work_item_type = 'Defect' OR work_item_type = 'Bug')
+         AND (state IS NULL OR (state <> 'Done' AND state <> 'Removed'))`
+    ).get(teamId) as { c: number };
+    return row?.c ?? 0;
+  },
+
+  countOpenDefectsIncludingChildren(teamId: string): number {
+    const row = getDb().prepare(
+      `SELECT
+         (SELECT COUNT(1)
+          FROM work_items
+          WHERE team_id = ?
+            AND (work_item_type = 'Defect' OR work_item_type = 'Bug')
+            AND (state IS NULL OR (state <> 'Done' AND state <> 'Removed'))
+         ) +
+         (SELECT COUNT(1)
+          FROM work_item_children c
+          JOIN work_items w ON w.id = c.parent_id
+          WHERE w.team_id = ?
+            AND c.child_type = 'Defect'
+            AND (c.state IS NULL OR (c.state <> 'Done' AND c.state <> 'Removed'))
+         ) as c
+      `
+    ).get(teamId, teamId) as { c: number };
+    return row?.c ?? 0;
+  },
   byTeamAndSprints(teamId: string, sprintNames: string[]): WorkItem[] {
     if (!sprintNames.length) return workItemsRepo.byTeam(teamId);
     const placeholders = sprintNames.map(() => "?").join(",");
@@ -109,12 +155,12 @@ export const workItemsRepo = {
   upsertBulk(rows: WorkItem[]) {
     const stmt = getDb().prepare(`
       INSERT INTO work_items (
-        id, team_id, title, state, board_column, board_column_done, work_item_type, created_date, changed_date,
+        id, team_id, title, state, board_column, board_column_done, priority, severity, work_item_type, created_date, changed_date,
         closed_date, assigned_to, iteration_path, iteration_name, area_path,
         effort, activity, bloqueio, tipo_bloqueio, motivo_bloqueio, produto,
         tecnologia, number_mti, dor_checklist, dod_checklist
       ) VALUES (
-        @id, @team_id, @title, @state, @board_column, @board_column_done, @work_item_type, @created_date, @changed_date,
+        @id, @team_id, @title, @state, @board_column, @board_column_done, @priority, @severity, @work_item_type, @created_date, @changed_date,
         @closed_date, @assigned_to, @iteration_path, @iteration_name, @area_path,
         @effort, @activity, @bloqueio, @tipo_bloqueio, @motivo_bloqueio, @produto,
         @tecnologia, @number_mti, @dor_checklist, @dod_checklist
@@ -124,7 +170,9 @@ export const workItemsRepo = {
         iteration_name=excluded.iteration_name, effort=excluded.effort,
         closed_date=excluded.closed_date,
         board_column=excluded.board_column,
-        board_column_done=excluded.board_column_done
+        board_column_done=excluded.board_column_done,
+        priority=excluded.priority,
+        severity=excluded.severity
     `);
     const insert = getDb().transaction((items: WorkItem[]) => {
       for (const i of items) stmt.run(i);

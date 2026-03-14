@@ -5,13 +5,21 @@ import { StateBadge } from "@/components/ui/Badge";
 
 // ── SprintsTab ────────────────────────────────────────────────────────────────
 export function SprintsTab({ data }: { data: Record<string,unknown>|null }) {
-  type SM = { sprintId:string; sprintName:string; startDate?:string|null; finishDate?:string|null; planned:number; completed:number; extraAdded?:number; carryOver:number; completionRate:number; avgLeadTime?:number|null };
+  type SM = { sprintId:string; sprintName:string; startDate?:string|null; finishDate?:string|null; planned:number; completed:number; extraAdded?:number; carryOver:number; completionRate:number; avgLeadTime?:number|null; plannedEffort?: number; completedEffort?: number; extraEffort?: number };
   const sprints = (data?.sprintMetrics as SM[]) ?? [];
   type WI = { id:number; title?:string; iteration?:string; closedDate?:string|null; state?:string; boardColumn?:string|null; boardColumnDone?:number|null };
   const wis = (data?.workItems as WI[]) ?? [];
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [futureOpen, setFutureOpen] = useState(false);
   const [pastOpen, setPastOpen] = useState(false);
+  const [metric, setMetric] = useState<"items" | "effort">("items");
+
+  const fmtMetricVal = (v: unknown) => {
+    if (metric !== "effort") return String(v);
+    const n = Number(v);
+    if (!Number.isFinite(n)) return String(v);
+    return `${n.toFixed(1)} h/pts`;
+  };
 
   const team = (data as any)?.team as { org?: string; project?: string } | undefined;
   const azureUrl = (id: number) => {
@@ -121,16 +129,31 @@ export function SprintsTab({ data }: { data: Record<string,unknown>|null }) {
           </div>
         </div>
 
+        <div className="flex items-center justify-end gap-1.5 mb-3">
+          <button
+            onClick={() => setMetric("items")}
+            className={`px-2.5 py-1 rounded text-[11px] transition-all ${metric === "items" ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}
+          >
+            Quantidade
+          </button>
+          <button
+            onClick={() => setMetric("effort")}
+            className={`px-2.5 py-1 rounded text-[11px] transition-all ${metric === "effort" ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}
+          >
+            Esforço
+          </button>
+        </div>
+
         <div className="grid grid-cols-5 gap-2.5 mb-4">
           {[
-            ["Planejado",  s.planned,      "var(--accent)"],
-            ["Realizado",  s.completed,    "var(--success)"],
-            ["Extra",      s.extraAdded ?? 0, "var(--warn)"],
+            ["Planejado",  metric === "effort" ? (s.plannedEffort ?? 0) : s.planned,      "var(--accent)"],
+            ["Realizado",  metric === "effort" ? (s.completedEffort ?? 0) : s.completed,    "var(--success)"],
+            ["Extra",      metric === "effort" ? (s.extraEffort ?? 0) : (s.extraAdded ?? 0), "var(--warn)"],
             ["Carry Over", s.carryOver,    "var(--danger)"],
             ["Lead Time",  s.avgLeadTime != null ? `${s.avgLeadTime.toFixed(1)}d` : "—", "var(--purple)"],
           ].map(([lbl, val, c]) => (
             <div key={String(lbl)} className="bg-[var(--bg3)] rounded-lg px-3 py-2.5">
-              <div className="text-xl font-bold font-mono leading-none" style={{ color: String(c) }}>{String(val)}</div>
+              <div className="text-xl font-bold font-mono leading-none" style={{ color: String(c) }}>{String(lbl) === "Planejado" || String(lbl) === "Realizado" || String(lbl) === "Extra" ? fmtMetricVal(val) : String(val)}</div>
               <div className="text-[9px] text-[var(--text3)] uppercase tracking-wide mt-1">{String(lbl)}</div>
             </div>
           ))}

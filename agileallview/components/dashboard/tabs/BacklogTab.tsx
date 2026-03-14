@@ -30,14 +30,20 @@ const STATE_COLORS: Record<string,string> = {
   Removed:"#ef4444",
 };
 
-type WI = { id:number; title?:string; state?:string; boardColumn?:string|null; iteration?:string; assignedTo?:string; effort?:number|null; leadTime?:number|null; cycleTime?:number|null; statusTimeline?:{state:string;startDate:string;endDate:string;duration:number}[]; timeByStatus?:Record<string,number> };
+type WI = { id:number; title?:string; state?:string; workItemType?: string | null; boardColumn?:string|null; iteration?:string; assignedTo?:string; effort?:number|null; leadTime?:number|null; cycleTime?:number|null; statusTimeline?:{state:string;startDate:string;endDate:string;duration:number}[]; timeByStatus?:Record<string,number> };
 
-type SortKey = "id" | "title" | "state" | "boardColumn" | "iteration" | "effort" | "leadTime" | "cycleTime" | "assignedTo" | "remainingSum";
+type SortKey = "id" | "title" | "state" | "workItemType" | "boardColumn" | "iteration" | "effort" | "leadTime" | "cycleTime" | "assignedTo" | "remainingSum";
 
 type ChildRow = { id: number; type: string | null; title: string | null; state: string | null; assignedTo: string | null; remainingWork: number | null };
 
 export function BacklogTab({ data, openBacklog }: { data: Record<string,unknown>|null; openBacklog?: boolean }) {
-  const wis = (data?.workItems as WI[]) ?? [];
+  const wisAll = (data?.workItems as WI[]) ?? [];
+  const wis = useMemo(() => {
+    // Backlog main list should show PBIs/User Stories and Defects only.
+    // Bugs are shown only inside the expanded children section.
+    const allowed = new Set(["Product Backlog Item", "User Story", "Defect"]);
+    return wisAll.filter((w) => allowed.has(String(w.workItemType ?? "Product Backlog Item")));
+  }, [wisAll]);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" } | null>({ key: "id", dir: "desc" });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -187,7 +193,7 @@ export function BacklogTab({ data, openBacklog }: { data: Record<string,unknown>
       <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl overflow-hidden mb-4">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
           <div className="text-sm font-semibold">
-            {openBacklog ? "Backlog em aberto" : "PBIs do período"}
+            {openBacklog ? "Backlog em aberto" : "Itens do período"}
             <span className="text-[var(--text3)] font-normal font-mono"> ({wis.length})</span>
           </div>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por título ou ID..."
@@ -196,7 +202,7 @@ export function BacklogTab({ data, openBacklog }: { data: Record<string,unknown>
 
         {wis.length === 0 ? (
           <div className="py-12 text-center text-[var(--text3)] text-sm">
-            {openBacklog ? "Nenhum item em aberto encontrado." : "Nenhum PBI encontrado. Ajuste o período ou sincronize o time."}
+            {openBacklog ? "Nenhum item em aberto encontrado." : "Nenhum item encontrado. Ajuste o período ou sincronize o time."}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -206,6 +212,7 @@ export function BacklogTab({ data, openBacklog }: { data: Record<string,unknown>
                   <th className="px-2 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap"> </th>
                   <th onClick={() => toggleSort("id")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">ID{sortMark("id")}</th>
                   <th onClick={() => toggleSort("title")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">Título{sortMark("title")}</th>
+                  <th onClick={() => toggleSort("workItemType")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">Tipo{sortMark("workItemType")}</th>
                   <th onClick={() => toggleSort("state")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">Estado{sortMark("state")}</th>
                   <th onClick={() => toggleSort("boardColumn")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">Board{sortMark("boardColumn")}</th>
                   <th onClick={() => toggleSort("iteration")} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wide border-b border-[var(--border)] whitespace-nowrap cursor-pointer select-none">Sprint{sortMark("iteration")}</th>
@@ -221,6 +228,7 @@ export function BacklogTab({ data, openBacklog }: { data: Record<string,unknown>
                   const isExpanded = Boolean(expanded[String(w.id)]);
                   const sum = remainingSums[String(w.id)];
                   const childs = children[String(w.id)] ?? [];
+                  const isDefect = String(w.workItemType ?? "") === "Defect";
                   return (
                     <Fragment key={w.id}>
                       <tr key={w.id}
@@ -248,11 +256,16 @@ export function BacklogTab({ data, openBacklog }: { data: Record<string,unknown>
                             {isExpanded ? "−" : "+"}
                           </button>
                         </td>
-                        <td className="px-3 py-2.5 font-mono text-[var(--accent)]">
+                        <td className={`px-3 py-2.5 font-mono ${isDefect ? "text-[var(--danger)]" : "text-[var(--accent)]"}`}>
                           <a href={azureUrl(w.id)} target="_blank" rel="noreferrer" className="hover:underline" onClick={(e) => e.stopPropagation()}>{w.id}</a>
                         </td>
-                        <td className="px-3 py-2.5 text-[var(--text)] max-w-[180px] truncate">
+                        <td className={`px-3 py-2.5 max-w-[180px] truncate ${isDefect ? "text-[var(--danger)]" : "text-[var(--text)]"}`}>
                           <a href={azureUrl(w.id)} target="_blank" rel="noreferrer" className="hover:underline" onClick={(e) => e.stopPropagation()} title={w.title ?? ""}>{w.title}</a>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-mono ${isDefect ? "bg-[rgba(239,68,68,.08)] border-[rgba(239,68,68,.28)] text-[var(--danger)]" : "bg-[var(--bg3)] border-[var(--border)] text-[var(--text3)]"}`}>
+                            {w.workItemType ?? "—"}
+                          </span>
                         </td>
                         <td className="px-3 py-2.5"><StateBadge state={w.state} /></td>
                         <td className="px-3 py-2.5 text-[var(--text2)] text-[11px]">{w.boardColumn ?? "—"}</td>

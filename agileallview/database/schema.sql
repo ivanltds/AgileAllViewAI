@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS work_items (
   state           TEXT,
   board_column    TEXT,
   board_column_done INTEGER,
+  priority        INTEGER,
+  severity        TEXT,
   work_item_type  TEXT DEFAULT 'Product Backlog Item',
   created_date    TEXT,
   changed_date    TEXT,
@@ -69,6 +71,8 @@ CREATE TABLE IF NOT EXISTS work_item_children (
   title          TEXT,
   assigned_to    TEXT,
   state          TEXT,
+  priority       INTEGER,
+  severity       TEXT,
   remaining_work REAL,
   fetched_at     TEXT DEFAULT (datetime('now')),
   PRIMARY KEY (parent_id, child_id)

@@ -100,7 +100,7 @@ const customTooltip = ({ active, payload, label }: any) => {
 };
 
 export function OverviewTab({ data }: { data: Record<string, unknown> | null }) {
-  const sprintMetrics = (data?.sprintMetrics as {planned:number;completed:number;throughput:number}[]) ?? [];
+  const sprintMetrics = (data?.sprintMetrics as { planned:number; completed:number; throughput:number; extraAdded?: number; plannedEffort?: number; completedEffort?: number; extraEffort?: number }[]) ?? [];
   const workItems = (data?.workItems as {state:string;leadTime:number|null;cycleTime:number|null;timeByStatus:Record<string,number>}[]) ?? [];
   const leadTimeValues = (data?.leadTimeValues as number[]) ?? [];
   const cycleTimeValues = (data?.cycleTimeValues as number[]) ?? [];
@@ -108,7 +108,8 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
   const cycleTimeByDeliveryWeek = (data?.cycleTimeByDeliveryWeek as {week:string;count:number;p50:number|null;p85:number|null;p95:number|null}[]) ?? [];
 
   const [leadPct, setLeadPct] = useState<number>(90);
-  const [cyclePct, setCyclePct] = useState<number>(90);
+  const [cyclePct, setCyclePct] = useState(85);
+  const [planMetric, setPlanMetric] = useState<"items" | "effort">("items");
   const [helpOpen, setHelpOpen] = useState<Record<string, boolean>>({});
 
   const done      = workItems.filter((w) => w.state === "Done");
@@ -155,12 +156,33 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
   const plannedVsRealizedData = useMemo(() => {
     return sprintMetrics.map((s: any, idx) => ({
       name: sprintLabel(String(s.sprintName ?? `Sprint ${idx + 1}`)),
-      Planejado: Number(s.planned ?? 0),
-      Concluido: Number(s.completed ?? 0),
-      Extras: Number(s.extraAdded ?? 0),
+      Planejado: planMetric === "effort" ? Number(s.plannedEffort ?? 0) : Number(s.planned ?? 0),
+      Concluido: planMetric === "effort" ? Number(s.completedEffort ?? 0) : Number(s.completed ?? 0),
+      Extras: planMetric === "effort" ? Number(s.extraEffort ?? 0) : Number(s.extraAdded ?? 0),
       Throughput: Number(s.throughput ?? 0),
     }));
-  }, [sprintMetrics]);
+  }, [sprintMetrics, planMetric]);
+
+  const plannedTooltip = useMemo(() => {
+    if (planMetric !== "effort") return customTooltip as any;
+    return ({ active, payload, label }: any) => {
+      if (!active || !Array.isArray(payload) || !payload.length) return null;
+      return (
+        <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs">
+          <div className="font-semibold mb-1">{String(label)}</div>
+          {(payload as { name: string; value: number; color: string }[]).map((p) => (
+            <div key={p.name} className="flex items-center gap-2" style={{ color: p.color }}>
+              <span className="w-2 h-2 rounded-sm" style={{ background: p.color }} />
+              {p.name}: {typeof p.value === "number" ? `${p.value.toFixed?.(1) ?? p.value} h/pts` : p.value}
+            </div>
+          ))}
+        </div>
+      );
+    };
+  }, [planMetric]);
+
+  const openBugs = Number((data as any)?.quality?.bugs?.openCount ?? 0);
+  const openDefects = Number((data as any)?.quality?.defects?.openCount ?? 0);
 
   const avgDaysByStatus = useMemo(() => {
     const agg: Record<string, { total: number; items: number }> = {};
@@ -195,12 +217,28 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
         <KpiCard label="Taxa de conclusão" value={hasSprintMetrics && hasPlannedScope ? `${completionRate}%` : "—"} color="var(--warn)"    icon={<TargetIcon/>} bg="rgba(245,158,11,.1)" />
         <KpiCard label="PBIs concluídos"   value={done.length}   color="var(--pink)"   icon={<CheckIcon/>}  bg="rgba(236,72,153,.1)" />
         <KpiCard label="PBIs analisados"   value={workItems.length} color="var(--text2)" icon={<GridIcon/>} />
+        <KpiCard label="Bugs abertos"      value={Number.isFinite(openBugs) ? openBugs : "—"} color="var(--danger)" icon={<BugIcon/>} bg="rgba(239,68,68,.1)" />
+        <KpiCard label="Defeitos abertos"  value={Number.isFinite(openDefects) ? openDefects : "—"} color="var(--danger)" icon={<DefectIcon/>} bg="rgba(239,68,68,.1)" />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
           <div className="flex items-start justify-between gap-3 mb-4">
             <div className="text-sm font-semibold">Planejado vs Realizado (por sprint)</div>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setPlanMetric("items")}
+                className={`px-2.5 py-1 rounded text-[11px] transition-all ${planMetric === "items" ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}
+              >
+                Quantidade
+              </button>
+              <button
+                onClick={() => setPlanMetric("effort")}
+                className={`px-2.5 py-1 rounded text-[11px] transition-all ${planMetric === "effort" ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}
+              >
+                Esforço
+              </button>
+            </div>
             <HelpButton
               isOpen={Boolean(helpOpen.plan)}
               onClick={() => setHelpOpen((v) => ({ ...v, plan: !v.plan }))}
@@ -218,7 +256,7 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-                <Tooltip content={customTooltip as any} />
+                <Tooltip content={plannedTooltip as any} />
                 <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
                 <Bar dataKey="Planejado" stackId="a" fill="var(--text3)" />
                 <Bar dataKey="Concluido" stackId="b" fill="var(--success)" />
@@ -415,5 +453,7 @@ const ChartIcon  = () => <svg className="w-4 h-4" fill="none" stroke="currentCol
 const TargetIcon = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M12 22a10 10 0 100-20 10 10 0 000 20zM12 18a6 6 0 100-12 6 6 0 000 12zM12 14a2 2 0 100-4 2 2 0 000 4z"/></svg>;
 const CheckIcon  = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>;
 const GridIcon   = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>;
+const BugIcon    = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M8 8h8M9 11h6M10 14h4"/><path d="M9 6a3 3 0 016 0"/><path d="M7 7l-2-2M17 7l2-2M6 12H3M21 12h-3M6 18H4M20 18h-2"/><path d="M8 18c0 1.5 1.8 3 4 3s4-1.5 4-3V11c0-2.2-1.8-4-4-4s-4 1.8-4 4v7z"/></svg>;
+const DefectIcon = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M12 2l7 4v6c0 5-3 9-7 10C8 21 5 17 5 12V6l7-4z"/><path d="M9 12l2 2 4-4"/></svg>;
 // pink
 declare module "react" { interface CSSProperties { ["--pink"]?: string } }

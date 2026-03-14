@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   teamsRepo, iterationsRepo, workItemsRepo, revisionsRepo,
-  metricsRepo, capacityRepo, tasksRepo,
+  metricsRepo, capacityRepo, tasksRepo, workItemChildrenRepo,
 } from "@/lib/storage/repositories";
 import {
   calcIndividualCapacity,
@@ -124,6 +124,9 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
       state:      wi.state,
       boardColumn: (wi as any).board_column ?? null,
       boardColumnDone: (wi as any).board_column_done ?? null,
+      priority: (wi as any).priority ?? null,
+      severity: (wi as any).severity ?? null,
+      workItemType: (wi as any).work_item_type ?? null,
       iteration:  wi.iteration_name,
       assignedTo: wi.assigned_to,
       effort:     wi.effort,
@@ -136,6 +139,57 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
       timeByStatus:   m ? JSON.parse(m.time_by_status  || "{}") : {},
     };
   });
+
+  const mkDist = (vals: (string | number | null | undefined)[]) => {
+    const m: Record<string, number> = {};
+    for (const v of vals) {
+      const k = (v == null ? "(vazio)" : String(v).trim()) || "(vazio)";
+      m[k] = (m[k] ?? 0) + 1;
+    }
+    return Object.entries(m)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  };
+
+  const defectWIs = allWIs.filter((w: any) => {
+    const t = String(w.work_item_type ?? "");
+    return t === "Defect" || t === "Bug";
+  });
+  const childRows = workItemChildrenRepo.byParents(allWIs.map((w) => w.id));
+  const bugChildren = childRows.filter((c) => String((c as any).child_type ?? "") === "Bug");
+  const defectChildren = childRows.filter((c) => String((c as any).child_type ?? "") === "Defect");
+
+  const isOpen = (st: unknown) => {
+    const s = String(st ?? "").trim();
+    if (!s) return true;
+    return s !== "Done" && s !== "Removed";
+  };
+
+  const quality = {
+    defects: {
+      bySeverity: mkDist([
+        ...defectWIs.map((w: any) => w.severity ?? null),
+        ...defectChildren.map((c: any) => c.severity ?? null),
+      ]),
+      byPriority: mkDist([
+        ...defectWIs.map((w: any) => w.priority ?? null),
+        ...defectChildren.map((c: any) => c.priority ?? null),
+      ]),
+      byState: mkDist([
+        ...defectWIs.map((w: any) => w.state ?? null),
+        ...defectChildren.map((c: any) => c.state ?? null),
+      ]),
+      openCount:
+        defectWIs.filter((w: any) => isOpen(w.state)).length +
+        defectChildren.filter((c: any) => isOpen(c.state)).length,
+    },
+    bugs: {
+      bySeverity: mkDist(bugChildren.map((c: any) => c.severity ?? null)),
+      byPriority: mkDist(bugChildren.map((c: any) => c.priority ?? null)),
+      byState: mkDist(bugChildren.map((c: any) => c.state ?? null)),
+      openCount: bugChildren.filter((c: any) => isOpen(c.state)).length,
+    },
+  };
 
   // Per-sprint aggregates (planned vs realized based on snapshot at sprint start/end)
   const allWIsForMetrics = workItemsRepo.byTeam(teamId);
@@ -525,5 +579,6 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
     memberCapacities,
     capacitySummary: capSummary,
     individualCapacity,
+    quality,
   });
 }

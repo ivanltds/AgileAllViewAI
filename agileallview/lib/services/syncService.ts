@@ -37,6 +37,8 @@ const PBI_CORE_FIELDS = [
 // and fall back to core fields on error.
 const PBI_OPTIONAL_FIELDS = [
   "System.BoardColumnDone",
+  "Microsoft.VSTS.Common.Priority",
+  "Microsoft.VSTS.Common.Severity",
   // Legacy custom fields
   "Custom.Block",
   "Custom.TipoDoBloqueio",
@@ -57,6 +59,8 @@ const PBI_OPTIONAL_FIELDS = [
 const DEFAULT_PBI_WORK_ITEM_TYPES = [
   "Product Backlog Item",
   "User Story",
+  "Bug",
+  "Defect",
 ];
 
 const TASK_FIELDS = [
@@ -72,6 +76,8 @@ const CHILD_FIELDS = [
   "System.WorkItemType",
   "System.State",
   "System.AssignedTo",
+  "Microsoft.VSTS.Common.Priority",
+  "Microsoft.VSTS.Common.Severity",
   "Microsoft.VSTS.Scheduling.RemainingWork",
 ];
 
@@ -189,6 +195,8 @@ export async function syncTeam(
       state:          str(wi.fields["System.State"]),
       board_column:   str(wi.fields["System.BoardColumn"]) ?? null,
       board_column_done: wi.fields["System.BoardColumnDone"] === true ? 1 : wi.fields["System.BoardColumnDone"] === false ? 0 : null,
+      priority:       num(wi.fields["Microsoft.VSTS.Common.Priority"]),
+      severity:       str(wi.fields["Microsoft.VSTS.Common.Severity"]) ?? null,
       work_item_type: str(wi.fields["System.WorkItemType"]) ?? "Product Backlog Item",
       created_date:   str(wi.fields["System.CreatedDate"]),
       changed_date:   str(wi.fields["System.ChangedDate"]),
@@ -250,14 +258,14 @@ export async function syncTeam(
       const rawChildren = await api.getWorkItemsBatch(team.org, childIds, CHILD_FIELDS);
       const childMap = new Map(rawChildren.map((c) => [c.id, c] as const));
 
-      const rows: { parent_id: number; child_id: number; child_type?: string | null; title?: string | null; assigned_to?: string | null; state?: string | null; remaining_work?: number | null }[] = [];
+      const rows: { parent_id: number; child_id: number; child_type?: string | null; title?: string | null; assigned_to?: string | null; state?: string | null; priority?: number | null; severity?: string | null; remaining_work?: number | null }[] = [];
       for (const [parentId, ids] of Array.from(parentToChildren.entries())) {
         for (const childId of Array.from(new Set(ids))) {
           const c = childMap.get(childId);
           if (!c) continue;
           const type = str(c.fields["System.WorkItemType"]) ?? null;
-          // Only keep Tasks/Bugs
-          if (type !== "Task" && type !== "Bug") continue;
+          // Only keep Tasks/Bugs/Defects
+          if (type !== "Task" && type !== "Bug" && type !== "Defect") continue;
           rows.push({
             parent_id: parentId,
             child_id: childId,
@@ -265,6 +273,8 @@ export async function syncTeam(
             title: str(c.fields["System.Title"]) ?? null,
             assigned_to: assignedTo(c.fields["System.AssignedTo"]) ?? null,
             state: str(c.fields["System.State"]) ?? null,
+            priority: num(c.fields["Microsoft.VSTS.Common.Priority"]),
+            severity: str(c.fields["Microsoft.VSTS.Common.Severity"]) ?? null,
             remaining_work: num(c.fields["Microsoft.VSTS.Scheduling.RemainingWork"]),
           });
         }
@@ -458,6 +468,7 @@ async function wiqlPbiIdsWithFallback(
   project: string,
   dateFilter: string
 ): Promise<number[]> {
+  const set = new Set<number>();
   for (const typeName of DEFAULT_PBI_WORK_ITEM_TYPES) {
     const wiqlQuery = `
       SELECT [System.Id] FROM WorkItems
@@ -469,11 +480,14 @@ async function wiqlPbiIdsWithFallback(
 
     try {
       const ids = await api.wiql(org, project, wiqlQuery);
-      if (ids.length) return ids;
+      for (const id of ids) set.add(id);
     } catch (e) {
       console.warn(`WIQL failed for work item type '${typeName}':`, e);
     }
   }
+
+  const merged = Array.from(set);
+  if (merged.length) return merged;
 
   // Last attempt: keep previous behaviour for visibility (may throw)
   const lastWiql = `
@@ -491,6 +505,7 @@ async function wiqlOpenPbiIdsWithFallback(
   org: string,
   project: string
 ): Promise<number[]> {
+  const set = new Set<number>();
   for (const typeName of DEFAULT_PBI_WORK_ITEM_TYPES) {
     const wiqlQuery = `
       SELECT [System.Id] FROM WorkItems
@@ -502,11 +517,14 @@ async function wiqlOpenPbiIdsWithFallback(
     `;
     try {
       const ids = await api.wiql(org, project, wiqlQuery);
-      if (ids.length) return ids;
+      for (const id of ids) set.add(id);
     } catch (e) {
       console.warn(`WIQL open items failed for work item type '${typeName}':`, e);
     }
   }
+
+  const merged = Array.from(set);
+  if (merged.length) return merged;
 
   const lastWiql = `
     SELECT [System.Id] FROM WorkItems

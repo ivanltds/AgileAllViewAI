@@ -76,6 +76,8 @@ export function HomeScreen({ teams, onSelect, onAdd, onDelete, onRefresh }: {
                   { label: "Conclusão", val: t.kpis?.completionRate != null ? `${t.kpis.completionRate}%` : "—", color: "var(--success)" },
                   { label: "Throughput", val: t.kpis?.throughput ?? "—", color: "var(--warn)" },
                   { label: "PBIs", val: t.kpis?.totalPbis ?? "—", color: "var(--purple)" },
+                  { label: "Bugs abertos", val: t.kpis?.openBugs ?? "—", color: "var(--danger)" },
+                  { label: "Defeitos abertos", val: t.kpis?.openDefects ?? "—", color: "var(--danger)" },
                 ].map(({ label, val, color }) => (
                   <div key={label} className="bg-[var(--bg3)] rounded-lg px-3 py-2.5">
                     <div className="text-lg font-bold font-mono leading-none" style={{ color }}>{val}</div>

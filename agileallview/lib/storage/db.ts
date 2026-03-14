@@ -30,10 +30,14 @@ export function getDb(): Database.Database {
   // Best-effort schema upgrades for existing DBs
   ensureColumn(_db, "work_items", "board_column", "TEXT");
   ensureColumn(_db, "work_items", "board_column_done", "INTEGER");
+  ensureColumn(_db, "work_items", "priority", "INTEGER");
+  ensureColumn(_db, "work_items", "severity", "TEXT");
   ensureColumn(_db, "work_items", "dor_checklist", "TEXT");
   ensureColumn(_db, "work_items", "dod_checklist", "TEXT");
   ensureColumn(_db, "work_item_children", "assigned_to", "TEXT");
   ensureColumn(_db, "work_item_children", "state", "TEXT");
+  ensureColumn(_db, "work_item_children", "priority", "INTEGER");
+  ensureColumn(_db, "work_item_children", "severity", "TEXT");
   ensureColumn(_db, "tasks", "state", "TEXT");
   ensureColumn(_db, "tasks", "completed_work", "REAL");
   ensureColumn(_db, "tasks", "original_estimate", "REAL");
