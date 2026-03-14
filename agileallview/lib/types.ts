@@ -30,6 +30,7 @@ export interface WorkItem {
   title?: string;
   state?: string;
   board_column?: string | null;
+  board_column_done?: number | null;
   work_item_type?: string;
   created_date?: string;
   changed_date?: string;
@@ -143,6 +144,7 @@ export interface TeamDto {
     avgCycleTime: number | null;
     throughput: number;
     completionRate: number;
+    totalPbis?: number;
   };
 }
 
@@ -165,10 +167,12 @@ export interface WorkItemDto {
   title?: string;
   state?: string;
   boardColumn?: string | null;
+  boardColumnDone?: number | null;
   iteration?: string;
   assignedTo?: string;
   effort?: number | null;
-  activity?: string;
+  activity?: string | null;
+  bloqueio?: boolean;
   leadTime?: number | null;
   cycleTime?: number | null;
   statusTimeline?: StatusEntry[];

@@ -36,6 +36,7 @@ const PBI_CORE_FIELDS = [
 // Optional fields: may not exist in every organisation/process. We will try them
 // and fall back to core fields on error.
 const PBI_OPTIONAL_FIELDS = [
+  "System.BoardColumnDone",
   // Legacy custom fields
   "Custom.Block",
   "Custom.TipoDoBloqueio",
@@ -187,6 +188,7 @@ export async function syncTeam(
       title:          str(wi.fields["System.Title"]),
       state:          str(wi.fields["System.State"]),
       board_column:   str(wi.fields["System.BoardColumn"]) ?? null,
+      board_column_done: wi.fields["System.BoardColumnDone"] === true ? 1 : wi.fields["System.BoardColumnDone"] === false ? 0 : null,
       work_item_type: str(wi.fields["System.WorkItemType"]) ?? "Product Backlog Item",
       created_date:   str(wi.fields["System.CreatedDate"]),
       changed_date:   str(wi.fields["System.ChangedDate"]),

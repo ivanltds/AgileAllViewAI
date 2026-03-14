@@ -10,6 +10,8 @@ export function HomeScreen({ teams, onSelect, onAdd, onDelete, onRefresh }: {
   onRefresh: () => Promise<void>;
 }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<TeamDto | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const syncBadge = (t: TeamDto) => {
     const ss = t.syncState;
@@ -60,7 +62,7 @@ export function HomeScreen({ teams, onSelect, onAdd, onDelete, onRefresh }: {
                   <div className="text-[11px] text-[var(--accent)] font-mono mt-0.5">{t.org}</div>
                 </div>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(t.id); }}
+                  onClick={(e) => { e.stopPropagation(); setConfirmDelete(t); }}
                   className="p-1.5 text-[var(--text3)] hover:text-[var(--danger)] hover:bg-[rgba(239,68,68,.08)] rounded transition-all">
                   <TrashIcon />
                 </button>
@@ -92,6 +94,55 @@ export function HomeScreen({ teams, onSelect, onAdd, onDelete, onRefresh }: {
       )}
 
       {showAdd && <AddTeamModal onClose={() => setShowAdd(false)} onAdd={async (d) => { await onAdd(d); setShowAdd(false); await onRefresh(); }} />}
+
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/70 z-[200] flex items-center justify-center backdrop-blur-sm"
+          onClick={(e) => !deleting && e.target === e.currentTarget && setConfirmDelete(null)}>
+          <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-7 w-[520px] max-w-[95vw]">
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-lg font-bold font-display">Deletar time</div>
+              <button
+                onClick={() => !deleting && setConfirmDelete(null)}
+                className="p-1.5 text-[var(--text2)] hover:text-[var(--text)] hover:bg-[var(--bg3)] rounded transition-all"
+              >
+                <XIcon />
+              </button>
+            </div>
+
+            <div className="text-sm text-[var(--text2)] leading-relaxed">
+              Tem certeza que deseja deletar o time <strong className="text-[var(--text)]">{confirmDelete.name}</strong>?
+            </div>
+            <div className="text-xs text-[var(--text3)] mt-2">
+              Isso remove o time cadastrado localmente e os dados sincronizados associados.
+            </div>
+
+            <div className="flex gap-3 justify-end mt-6">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                disabled={deleting}
+                className="bg-[var(--bg3)] border border-[var(--border)] text-[var(--text)] rounded-lg px-4 py-2 text-sm hover:border-[var(--border2)] transition-all disabled:opacity-40"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  setDeleting(true);
+                  try {
+                    await onDelete(confirmDelete.id);
+                    setConfirmDelete(null);
+                  } finally {
+                    setDeleting(false);
+                  }
+                }}
+                disabled={deleting}
+                className="bg-[rgba(239,68,68,.14)] border border-[rgba(239,68,68,.35)] text-[var(--danger)] rounded-lg px-4 py-2 text-sm font-semibold hover:bg-[rgba(239,68,68,.2)] transition-all disabled:opacity-40"
+              >
+                {deleting ? "Deletando..." : "Deletar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

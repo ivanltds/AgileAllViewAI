@@ -109,12 +109,12 @@ export const workItemsRepo = {
   upsertBulk(rows: WorkItem[]) {
     const stmt = getDb().prepare(`
       INSERT INTO work_items (
-        id, team_id, title, state, board_column, work_item_type, created_date, changed_date,
+        id, team_id, title, state, board_column, board_column_done, work_item_type, created_date, changed_date,
         closed_date, assigned_to, iteration_path, iteration_name, area_path,
         effort, activity, bloqueio, tipo_bloqueio, motivo_bloqueio, produto,
         tecnologia, number_mti, dor_checklist, dod_checklist
       ) VALUES (
-        @id, @team_id, @title, @state, @board_column, @work_item_type, @created_date, @changed_date,
+        @id, @team_id, @title, @state, @board_column, @board_column_done, @work_item_type, @created_date, @changed_date,
         @closed_date, @assigned_to, @iteration_path, @iteration_name, @area_path,
         @effort, @activity, @bloqueio, @tipo_bloqueio, @motivo_bloqueio, @produto,
         @tecnologia, @number_mti, @dor_checklist, @dod_checklist
@@ -123,7 +123,8 @@ export const workItemsRepo = {
         assigned_to=excluded.assigned_to, iteration_path=excluded.iteration_path,
         iteration_name=excluded.iteration_name, effort=excluded.effort,
         closed_date=excluded.closed_date,
-        board_column=excluded.board_column
+        board_column=excluded.board_column,
+        board_column_done=excluded.board_column_done
     `);
     const insert = getDb().transaction((items: WorkItem[]) => {
       for (const i of items) stmt.run(i);

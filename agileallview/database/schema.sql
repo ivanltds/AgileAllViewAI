@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS work_items (
   title           TEXT,
   state           TEXT,
   board_column    TEXT,
+  board_column_done INTEGER,
   work_item_type  TEXT DEFAULT 'Product Backlog Item',
   created_date    TEXT,
   changed_date    TEXT,

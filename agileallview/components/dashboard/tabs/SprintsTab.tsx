@@ -1,12 +1,13 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
+import { StateBadge } from "@/components/ui/Badge";
 
 // ── SprintsTab ────────────────────────────────────────────────────────────────
 export function SprintsTab({ data }: { data: Record<string,unknown>|null }) {
   type SM = { sprintId:string; sprintName:string; startDate?:string|null; finishDate?:string|null; planned:number; completed:number; extraAdded?:number; carryOver:number; completionRate:number; avgLeadTime?:number|null };
   const sprints = (data?.sprintMetrics as SM[]) ?? [];
-  type WI = { id:number; title?:string; iteration?:string; closedDate?:string|null; state?:string };
+  type WI = { id:number; title?:string; iteration?:string; closedDate?:string|null; state?:string; boardColumn?:string|null; boardColumnDone?:number|null };
   const wis = (data?.workItems as WI[]) ?? [];
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [futureOpen, setFutureOpen] = useState(false);
@@ -89,6 +90,24 @@ export function SprintsTab({ data }: { data: Record<string,unknown>|null }) {
     const fmt = (d?: string|null) => d ? new Date(d).toLocaleDateString("pt-BR") : "?";
     const isExpanded = Boolean(expanded[s.sprintId]);
     const items = itemsBySprint[s.sprintId] ?? [];
+    const board = (() => {
+      const colByKey = new Map<string, { key: string; title: string; done: boolean; items: WI[] }>();
+      for (const it of items) {
+        const title = (it.boardColumn ?? "").trim() || "Sem coluna";
+        const key = title.toLowerCase();
+        const row = colByKey.get(key) ?? { key, title, done: false, items: [] };
+        row.items.push(it);
+        if (it.boardColumnDone === 1) row.done = true;
+        colByKey.set(key, row);
+      }
+      const cols = Array.from(colByKey.values()).sort((a, b) => {
+        if (a.done !== b.done) return a.done ? 1 : -1;
+        return a.title.localeCompare(b.title, "pt-BR");
+      });
+      const itemsByCol: Record<string, WI[]> = {};
+      for (const c of cols) itemsByCol[c.key] = c.items;
+      return { cols, itemsByCol };
+    })();
     return (
       <div key={s.sprintId} className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
         <div className="flex items-start justify-between mb-4">
@@ -132,23 +151,47 @@ export function SprintsTab({ data }: { data: Record<string,unknown>|null }) {
         </div>
 
         {isExpanded && (
-          <div className="mt-3 border border-[var(--border)] rounded-lg overflow-hidden">
+          <div className="mt-3">
             {items.length === 0 ? (
-              <div className="px-4 py-3 text-[11px] text-[var(--text3)] bg-[var(--bg3)]">Nenhum PBI encontrado para esta sprint.</div>
+              <div className="px-4 py-3 text-[11px] text-[var(--text3)] bg-[var(--bg3)] border border-[var(--border)] rounded-lg">Nenhum PBI encontrado para esta sprint.</div>
             ) : (
-              <div className="divide-y divide-[var(--border)]">
-                {items.map((w) => (
-                  <Fragment key={w.id}>
-                    <div className="px-4 py-2.5 bg-[var(--bg3)] text-[11px] flex items-center justify-between gap-4">
-                      <a href={azureUrl(w.id)} target="_blank" rel="noreferrer" className="hover:underline text-[var(--text)]">
-                        <span className="font-mono text-[var(--accent)]">{w.id}</span>
-                        <span className="text-[var(--text3)]"> — </span>
-                        <span>{w.title ?? "—"}</span>
-                      </a>
-                      <span className="text-[10px] text-[var(--text3)]">{w.state ?? ""}</span>
+              <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.max(1, board.cols.length)}, minmax(220px, 1fr))` }}>
+                {board.cols.map((col) => {
+                  const colItems = board.itemsByCol[col.key] ?? [];
+                  return (
+                    <div key={col.key} className="bg-[var(--bg3)] border border-[var(--border)] rounded-lg overflow-hidden">
+                      <div className="px-3 py-2 border-b border-[var(--border)] text-[11px] font-semibold text-[var(--text2)] flex items-center justify-between">
+                        <span>{col.title}</span>
+                        <span className="text-[10px] text-[var(--text3)] font-mono">{colItems.length}</span>
+                      </div>
+                      <div className="p-2 space-y-2">
+                        {colItems.length === 0 ? (
+                          <div className="text-[11px] text-[var(--text3)] px-2 py-2">—</div>
+                        ) : (
+                          colItems.map((w) => (
+                            <a
+                              key={w.id}
+                              href={azureUrl(w.id)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block bg-[var(--bg2)] border border-[var(--border)] rounded-lg px-3 py-2 hover:border-[var(--border2)] transition-all"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-[11px] font-mono text-[var(--accent)]">{w.id}</div>
+                                  <div className="text-[12px] text-[var(--text)] truncate">{w.title ?? "—"}</div>
+                                </div>
+                                <div className="flex-shrink-0">
+                                  <StateBadge state={w.state ?? ""} />
+                                </div>
+                              </div>
+                            </a>
+                          ))
+                        )}
+                      </div>
                     </div>
-                  </Fragment>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

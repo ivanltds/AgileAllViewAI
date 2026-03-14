@@ -123,6 +123,7 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
       title:      wi.title,
       state:      wi.state,
       boardColumn: (wi as any).board_column ?? null,
+      boardColumnDone: (wi as any).board_column_done ?? null,
       iteration:  wi.iteration_name,
       assignedTo: wi.assigned_to,
       effort:     wi.effort,
