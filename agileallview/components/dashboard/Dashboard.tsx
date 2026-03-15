@@ -73,6 +73,9 @@ export function Dashboard({
     setLoading(true);
     try {
       const params = new URLSearchParams();
+
+      const openMode = noFiltersApplied && (tab === "overview" || tab === "backlog" || tab === "sprints");
+
       if (selectedSprintIds.length) {
         params.set("sprintIds", selectedSprintIds.join(","));
       } else if (periodPreset === "3m" || periodPreset === "6m" || periodPreset === "1y") {
@@ -82,14 +85,14 @@ export function Dashboard({
         from.setMonth(from.getMonth() - months);
         params.set("from", from.toISOString().slice(0, 10));
         params.set("to", now.toISOString().slice(0, 10));
-      } else {
+      } else if (!openMode) {
         params.set("sprints", "4");
       }
 
       if (dateFrom) params.set("from", dateFrom);
       if (dateTo)   params.set("to",   dateTo);
 
-      if (tab === "backlog" && noFiltersApplied) {
+      if (openMode) {
         params.set("openBacklog", "1");
       }
 

@@ -60,7 +60,11 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
   let sprints = allSprints;
 
   // Apply filter
-  if (sprintIdsParam) {
+  if (openBacklog && !sprintIdsParam && !dateFrom && !dateTo) {
+    // Open backlog mode: do not slice by period/sprints
+    const nonFuture = sprints.filter((s) => s.time_frame !== "future");
+    sprints = nonFuture.length ? nonFuture : sprints;
+  } else if (sprintIdsParam) {
     const selectedIds = new Set(
       sprintIdsParam
         .split(",")
