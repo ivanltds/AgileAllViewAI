@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Spinner } from "@/components/ui/Spinner";
 
-export function SessionScreen({ onLogin }: { onLogin: (name: string, pat: string) => void }) {
+export function SessionScreen({ onLogin }: { onLogin: (name: string, org: string, pat: string) => void }) {
   const [name,  setName]  = useState("");
   const [pat,   setPat]   = useState("");
   const [org,   setOrg]   = useState("");
@@ -10,26 +10,23 @@ export function SessionScreen({ onLogin }: { onLogin: (name: string, pat: string
   const [error, setError] = useState("");
 
   const handleLogin = async () => {
-    if (!name.trim() || !pat.trim()) return;
+    if (!name.trim() || !org.trim() || !pat.trim()) return;
     setLoading(true); setError("");
 
-    if (org.trim()) {
-      // Optional: validate PAT against the org they typed
-      const res = await fetch("/api/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ org: org.trim(), pat: pat.trim() }),
-      });
-      const data = await res.json();
-      if (!data.valid) {
-        setError(data.error ?? "Token inválido");
-        setLoading(false);
-        return;
-      }
+    const res = await fetch("/api/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ org: org.trim(), pat: pat.trim() }),
+    });
+    const data = await res.json();
+    if (!data.valid) {
+      setError(data.error ?? "Token inválido");
+      setLoading(false);
+      return;
     }
 
     setLoading(false);
-    onLogin(name.trim(), pat.trim());
+    onLogin(name.trim(), org.trim(), pat.trim());
   };
 
   return (
@@ -63,7 +60,7 @@ export function SessionScreen({ onLogin }: { onLogin: (name: string, pat: string
 
           {[
             { label: "Nome", value: name, onChange: setName, placeholder: "Seu nome", type: "text" },
-            { label: "Organização (opcional, para validar)", value: org, onChange: setOrg, placeholder: "ex: MinhaEmpresa", type: "text" },
+            { label: "Organização", value: org, onChange: setOrg, placeholder: "ex: MinhaEmpresa", type: "text" },
             { label: "Personal Access Token (PAT)", value: pat, onChange: setPat, placeholder: "••••••••••••••", type: "password" },
           ].map(({ label, value, onChange, placeholder, type }) => (
             <div key={label} className="mb-5">
@@ -81,7 +78,7 @@ export function SessionScreen({ onLogin }: { onLogin: (name: string, pat: string
 
           <button
             onClick={handleLogin}
-            disabled={!name.trim() || !pat.trim() || loading}
+            disabled={!name.trim() || !org.trim() || !pat.trim() || loading}
             className="w-full bg-[var(--accent)] hover:bg-sky-400 text-white font-semibold rounded-lg py-2.5 text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:-translate-y-px hover:shadow-[0_4px_16px_rgba(14,165,233,.3)] active:translate-y-0"
           >
             {loading ? <><Spinner size={14} />Validando...</> : "Iniciar sessão"}

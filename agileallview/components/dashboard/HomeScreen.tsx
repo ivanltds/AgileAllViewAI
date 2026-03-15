@@ -2,8 +2,11 @@
 import { useState } from "react";
 import type { TeamDto } from "@/lib/types";
 
-export function HomeScreen({ teams, onSelect, onAdd, onDelete, onRefresh }: {
+export function HomeScreen({ teams, activeOrg, expandedOrg, onToggleOrg, onSelect, onAdd, onDelete, onRefresh }: {
   teams: TeamDto[];
+  activeOrg: string;
+  expandedOrg: string;
+  onToggleOrg: (org: string) => Promise<void>;
   onSelect: (t: TeamDto) => void;
   onAdd: (data: { name: string; org: string; project: string; teamName: string }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -23,6 +26,17 @@ export function HomeScreen({ teams, onSelect, onAdd, onDelete, onRefresh }: {
       : "bg-[rgba(245,158,11,.07)] border-[rgba(245,158,11,.25)] text-[var(--warn)]";
     return <span className={`text-[10px] border px-2 py-0.5 rounded font-mono ${cls}`}>{ageH < 2 ? "✓ " : ""}{label}</span>;
   };
+
+  const byOrg = teams.reduce<Record<string, TeamDto[]>>((acc, t) => {
+    (acc[t.org] = acc[t.org] || []).push(t);
+    return acc;
+  }, {});
+
+  const orgs = Object.keys(byOrg).sort((a, b) => {
+    if (a === activeOrg) return -1;
+    if (b === activeOrg) return 1;
+    return a.localeCompare(b);
+  });
 
   return (
     <main className="flex-1 px-6 py-7 max-w-[1400px] mx-auto w-full">
@@ -48,50 +62,79 @@ export function HomeScreen({ teams, onSelect, onAdd, onDelete, onRefresh }: {
           <div className="text-sm">Clique em &quot;Novo time&quot; para começar</div>
         </div>
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">
-          {teams.map((t) => (
-            <div key={t.id}
-              onClick={() => onSelect(t)}
-              className="relative bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--accent)] hover:shadow-[0_8px_30px_rgba(0,0,0,.35)] card-gradient-border overflow-hidden group">
-              {/* Top accent */}
-              <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[var(--accent)] to-[var(--purple)] opacity-0 group-hover:opacity-100 transition-opacity" />
-
-              <div className="flex items-start justify-between mb-1">
-                <div>
-                  <div className="text-base font-bold">{t.name}</div>
-                  <div className="text-[11px] text-[var(--accent)] font-mono mt-0.5">{t.org}</div>
-                </div>
+        <div className="space-y-3">
+          {orgs.map((org) => {
+            const ts = byOrg[org] ?? [];
+            const open = expandedOrg === org;
+            return (
+              <div key={org} className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl overflow-hidden">
                 <button
-                  onClick={(e) => { e.stopPropagation(); setConfirmDelete(t); }}
-                  className="p-1.5 text-[var(--text3)] hover:text-[var(--danger)] hover:bg-[rgba(239,68,68,.08)] rounded transition-all">
-                  <TrashIcon />
-                </button>
-              </div>
-
-              <div className="text-xs text-[var(--text2)] mb-4">📁 {t.project}</div>
-
-              <div className="grid grid-cols-2 gap-2.5 mb-4">
-                {[
-                  { label: "Lead Time", val: t.kpis?.avgLeadTime != null ? `${t.kpis.avgLeadTime.toFixed(1)}d` : "—", color: "var(--accent)" },
-                  { label: "Conclusão", val: t.kpis?.completionRate != null ? `${t.kpis.completionRate}%` : "—", color: "var(--success)" },
-                  { label: "Throughput", val: t.kpis?.throughput ?? "—", color: "var(--warn)" },
-                  { label: "PBIs", val: t.kpis?.totalPbis ?? "—", color: "var(--purple)" },
-                  { label: "Bugs abertos", val: t.kpis?.openBugs ?? "—", color: "var(--danger)" },
-                  { label: "Defeitos abertos", val: t.kpis?.openDefects ?? "—", color: "var(--danger)" },
-                ].map(({ label, val, color }) => (
-                  <div key={label} className="bg-[var(--bg3)] rounded-lg px-3 py-2.5">
-                    <div className="text-lg font-bold font-mono leading-none" style={{ color }}>{val}</div>
-                    <div className="text-[9px] text-[var(--text3)] uppercase tracking-wide mt-1">{label}</div>
+                  onClick={() => onToggleOrg(org)}
+                  className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--bg3)] transition-colors text-left"
+                >
+                  <div>
+                    <div className="text-sm font-semibold flex items-center gap-2">
+                      {org}
+                      {org === activeOrg && (
+                        <span className="text-[10px] bg-[rgba(14,165,233,.12)] text-[var(--accent)] rounded-full px-2 py-0.5">ativo</span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-[var(--text3)] font-mono mt-1">{ts.length} time{ts.length !== 1 ? "s" : ""}</div>
                   </div>
-                ))}
-              </div>
+                  <span className="text-[10px] text-[var(--text3)] transition-transform" style={{ transform: open ? "rotate(180deg)" : "none" }}>▼</span>
+                </button>
 
-              <div className="flex items-center justify-between pt-3 border-t border-[var(--border)]">
-                {syncBadge(t)}
-                <span className="text-xs text-[var(--accent)]">Abrir →</span>
+                {open && (
+                  <div className="px-5 pb-5">
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">
+                      {ts.map((t) => (
+                        <div key={t.id}
+                          onClick={() => onSelect(t)}
+                          className="relative bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--accent)] hover:shadow-[0_8px_30px_rgba(0,0,0,.35)] card-gradient-border overflow-hidden group">
+                          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[var(--accent)] to-[var(--purple)] opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                          <div className="flex items-start justify-between mb-1">
+                            <div>
+                              <div className="text-base font-bold">{t.name}</div>
+                              <div className="text-[11px] text-[var(--accent)] font-mono mt-0.5">{t.org}</div>
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setConfirmDelete(t); }}
+                              className="p-1.5 text-[var(--text3)] hover:text-[var(--danger)] hover:bg-[rgba(239,68,68,.08)] rounded transition-all">
+                              <TrashIcon />
+                            </button>
+                          </div>
+
+                          <div className="text-xs text-[var(--text2)] mb-4">📁 {t.project}</div>
+
+                          <div className="grid grid-cols-2 gap-2.5 mb-4">
+                            {[
+                              { label: "Lead Time", val: t.kpis?.avgLeadTime != null ? `${t.kpis.avgLeadTime.toFixed(1)}d` : "—", color: "var(--accent)" },
+                              { label: "Conclusão", val: t.kpis?.completionRate != null ? `${t.kpis.completionRate}%` : "—", color: "var(--success)" },
+                              { label: "Throughput", val: t.kpis?.throughput ?? "—", color: "var(--warn)" },
+                              { label: "PBIs", val: t.kpis?.totalPbis ?? "—", color: "var(--purple)" },
+                              { label: "Bugs abertos", val: t.kpis?.openBugs ?? "—", color: "var(--danger)" },
+                              { label: "Defeitos abertos", val: t.kpis?.openDefects ?? "—", color: "var(--danger)" },
+                            ].map(({ label, val, color }) => (
+                              <div key={label} className="bg-[var(--bg3)] rounded-lg px-3 py-2.5">
+                                <div className="text-lg font-bold font-mono leading-none" style={{ color }}>{val}</div>
+                                <div className="text-[9px] text-[var(--text3)] uppercase tracking-wide mt-1">{label}</div>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="flex items-center justify-between pt-3 border-t border-[var(--border)]">
+                            {syncBadge(t)}
+                            <span className="text-xs text-[var(--accent)]">Abrir →</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
