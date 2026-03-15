@@ -125,6 +125,33 @@ CREATE TABLE IF NOT EXISTS capacity (
 );
 CREATE INDEX IF NOT EXISTS idx_cap_team ON capacity(team_id, iteration_id);
 
+-- ── Capacity Overrides (manual edits in UI) ───────────────────────
+CREATE TABLE IF NOT EXISTS capacity_overrides (
+  id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_id                TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  iteration_id           TEXT NOT NULL,
+  member_id              TEXT NOT NULL,
+  override_hours_per_day REAL,
+  stacks                 TEXT,   -- JSON: ["Backend","Frontend",...]
+  is_dirty               INTEGER DEFAULT 1,
+  updated_at             TEXT DEFAULT (datetime('now')),
+  UNIQUE(team_id, iteration_id, member_id)
+);
+CREATE INDEX IF NOT EXISTS idx_cap_ov_team ON capacity_overrides(team_id, iteration_id);
+
+-- ── Future collaborators (planned hires) ─────────────────────────
+CREATE TABLE IF NOT EXISTS future_collaborators (
+  id                     TEXT PRIMARY KEY,
+  team_id                TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  iteration_id           TEXT NOT NULL,
+  name                   TEXT NOT NULL,
+  hours_per_day          REAL DEFAULT 7,
+  stacks                 TEXT,   -- JSON: ["Backend","Frontend",...]
+  created_at             TEXT DEFAULT (datetime('now')),
+  updated_at             TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_future_team ON future_collaborators(team_id, iteration_id);
+
 -- ── Team Members ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS members (
   id          TEXT,

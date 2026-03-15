@@ -59,6 +59,21 @@ function sprintLabel(sprintName: string): string {
   return sprintName;
 }
 
+function regressionTrend(values: { x: number; y: number }[]): { slope: number; intercept: number } | null {
+  if (values.length < 2) return null;
+  const n = values.length;
+  const sumX = values.reduce((s, p) => s + p.x, 0);
+  const sumY = values.reduce((s, p) => s + p.y, 0);
+  const sumXY = values.reduce((s, p) => s + p.x * p.y, 0);
+  const sumX2 = values.reduce((s, p) => s + p.x * p.x, 0);
+  const denom = n * sumX2 - sumX * sumX;
+  if (!Number.isFinite(denom) || denom === 0) return null;
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  if (!Number.isFinite(slope) || !Number.isFinite(intercept)) return null;
+  return { slope, intercept };
+}
+
 function HelpButton({ onClick, isOpen }: { onClick: () => void; isOpen: boolean }) {
   return (
     <button
@@ -104,11 +119,15 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
   const workItems = (data?.workItems as {state:string;leadTime:number|null;cycleTime:number|null;timeByStatus:Record<string,number>}[]) ?? [];
   const leadTimeValues = (data?.leadTimeValues as number[]) ?? [];
   const cycleTimeValues = (data?.cycleTimeValues as number[]) ?? [];
-  const leadTimeByDeliveryWeek = (data?.leadTimeByDeliveryWeek as {week:string;count:number;p50:number|null;p85:number|null;p95:number|null}[]) ?? [];
-  const cycleTimeByDeliveryWeek = (data?.cycleTimeByDeliveryWeek as {week:string;count:number;p50:number|null;p85:number|null;p95:number|null}[]) ?? [];
+  const leadTimeByDeliveryWeek = (data?.leadTimeByDeliveryWeek as {week:string;count:number;avg:number|null;min:number|null;max:number|null;p50:number|null;p85:number|null;p95:number|null}[]) ?? [];
+  const cycleTimeByDeliveryWeek = (data?.cycleTimeByDeliveryWeek as {week:string;count:number;avg:number|null;min:number|null;max:number|null;p50:number|null;p85:number|null;p95:number|null}[]) ?? [];
 
   const [leadPct, setLeadPct] = useState<number>(90);
   const [cyclePct, setCyclePct] = useState(85);
+  const [leadMode, setLeadMode] = useState<"pct" | "summary">("pct");
+  const [cycleMode, setCycleMode] = useState<"pct" | "summary">("pct");
+  const [leadViz, setLeadViz] = useState<"lines" | "scatter">("lines");
+  const [cycleViz, setCycleViz] = useState<"lines" | "scatter">("lines");
   const [planMetric, setPlanMetric] = useState<"items" | "effort">("items");
   const [helpOpen, setHelpOpen] = useState<Record<string, boolean>>({});
 
@@ -134,24 +153,72 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
   const hasCycleDeliveries = cycleTimeValues.length > 0 || cycleTimeByDeliveryWeek.some((w) => (w.count ?? 0) > 0);
 
   const leadByDeliveryWeekData = useMemo(() => {
-    return leadTimeByDeliveryWeek.map((w) => ({
+    return leadTimeByDeliveryWeek.map((w, idx) => ({
       name: w.week,
+      x: idx,
       P50: w.p50 != null ? parseFloat(w.p50.toFixed(1)) : null,
       P85: w.p85 != null ? parseFloat(w.p85.toFixed(1)) : null,
       P95: w.p95 != null ? parseFloat(w.p95.toFixed(1)) : null,
+      Media: w.avg != null ? parseFloat(w.avg.toFixed(1)) : null,
+      Min: w.min != null ? parseFloat(w.min.toFixed(1)) : null,
+      Max: w.max != null ? parseFloat(w.max.toFixed(1)) : null,
       Count: w.count,
     }));
   }, [leadTimeByDeliveryWeek]);
 
   const cycleByDeliveryWeekData = useMemo(() => {
-    return cycleTimeByDeliveryWeek.map((w) => ({
+    return cycleTimeByDeliveryWeek.map((w, idx) => ({
       name: w.week,
+      x: idx,
       P50: w.p50 != null ? parseFloat(w.p50.toFixed(1)) : null,
       P85: w.p85 != null ? parseFloat(w.p85.toFixed(1)) : null,
       P95: w.p95 != null ? parseFloat(w.p95.toFixed(1)) : null,
+      Media: w.avg != null ? parseFloat(w.avg.toFixed(1)) : null,
+      Min: w.min != null ? parseFloat(w.min.toFixed(1)) : null,
+      Max: w.max != null ? parseFloat(w.max.toFixed(1)) : null,
       Count: w.count,
     }));
   }, [cycleTimeByDeliveryWeek]);
+
+  const leadSummary = useMemo(() => {
+    if (!leadTimeValues.length) return { avg: null as number | null, min: null as number | null, max: null as number | null };
+    const min = Math.min(...leadTimeValues);
+    const max = Math.max(...leadTimeValues);
+    const avg = leadTimeValues.reduce((s, v) => s + v, 0) / leadTimeValues.length;
+    return { avg, min, max };
+  }, [leadTimeValues]);
+
+  const cycleSummary = useMemo(() => {
+    if (!cycleTimeValues.length) return { avg: null as number | null, min: null as number | null, max: null as number | null };
+    const min = Math.min(...cycleTimeValues);
+    const max = Math.max(...cycleTimeValues);
+    const avg = cycleTimeValues.reduce((s, v) => s + v, 0) / cycleTimeValues.length;
+    return { avg, min, max };
+  }, [cycleTimeValues]);
+
+  const leadTrendData = useMemo(() => {
+    const points = leadByDeliveryWeekData
+      .map((d) => ({ x: Number(d.x), y: Number(d.Media) }))
+      .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+    const reg = regressionTrend(points);
+    if (!reg) return leadByDeliveryWeekData.map((d) => ({ ...d, Tendencia: null as number | null }));
+    return leadByDeliveryWeekData.map((d) => ({
+      ...d,
+      Tendencia: Number.isFinite(d.x) ? parseFloat((reg.intercept + reg.slope * Number(d.x)).toFixed(1)) : null,
+    }));
+  }, [leadByDeliveryWeekData]);
+
+  const cycleTrendData = useMemo(() => {
+    const points = cycleByDeliveryWeekData
+      .map((d) => ({ x: Number(d.x), y: Number(d.Media) }))
+      .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+    const reg = regressionTrend(points);
+    if (!reg) return cycleByDeliveryWeekData.map((d) => ({ ...d, Tendencia: null as number | null }));
+    return cycleByDeliveryWeekData.map((d) => ({
+      ...d,
+      Tendencia: Number.isFinite(d.x) ? parseFloat((reg.intercept + reg.slope * Number(d.x)).toFixed(1)) : null,
+    }));
+  }, [cycleByDeliveryWeekData]);
 
   const plannedVsRealizedData = useMemo(() => {
     return sprintMetrics.map((s: any, idx) => ({
@@ -303,123 +370,315 @@ export function OverviewTab({ data }: { data: Record<string, unknown> | null }) 
 
         <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
           <div className="flex items-start justify-between gap-3 mb-4">
-            <div className="text-sm font-semibold">Lead Time por semana de entrega (p50/p85/p95)</div>
-            <HelpButton
-              isOpen={Boolean(helpOpen.lead)}
-              onClick={() => setHelpOpen((v) => ({ ...v, lead: !v.lead }))}
-            />
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">Lead Time por semana de entrega</div>
+              <div className="text-[10px] text-[var(--text3)] mt-1">Dias · por semana (fechamento)</div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setLeadViz("lines")}
+                className={`px-2.5 py-1 rounded text-[11px] transition-all ${leadViz === "lines" ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}
+              >
+                Linhas
+              </button>
+              <button
+                onClick={() => setLeadViz("scatter")}
+                className={`px-2.5 py-1 rounded text-[11px] transition-all ${leadViz === "scatter" ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}
+              >
+                Dispersão
+              </button>
+              {leadViz === "lines" && (
+                <>
+                  <button
+                    onClick={() => setLeadMode("pct")}
+                    className={`px-2.5 py-1 rounded text-[11px] transition-all ${leadMode === "pct" ? "bg-[rgba(139,92,246,.12)] border border-[var(--purple)] text-[var(--purple)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--purple)] hover:text-[var(--purple)]"}`}
+                  >
+                    Percentis
+                  </button>
+                  <button
+                    onClick={() => setLeadMode("summary")}
+                    className={`px-2.5 py-1 rounded text-[11px] transition-all ${leadMode === "summary" ? "bg-[rgba(139,92,246,.12)] border border-[var(--purple)] text-[var(--purple)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--purple)] hover:text-[var(--purple)]"}`}
+                  >
+                    Mín/Méd/Máx
+                  </button>
+                </>
+              )}
+              <HelpButton
+                isOpen={Boolean(helpOpen.lead)}
+                onClick={() => setHelpOpen((v) => ({ ...v, lead: !v.lead }))}
+              />
+            </div>
           </div>
           {helpOpen.lead && (
             <div className="text-[12px] text-[var(--text2)] mb-4 leading-relaxed">
-              Agrupa as demandas pela semana em que foram entregues (data de fechamento) e mostra a distribuição do Lead Time.
-              As linhas p50/p85/p95 indicam em quantos dias a maior parte das demandas é entregue. O card ao lado permite ajustar o percentil e ler o SLE do período selecionado.
+              Este gráfico agrupa as demandas pela semana em que foram entregues (data de fechamento) e mostra o Lead Time em dias.
+              <br />
+              <br />
+              <span className="font-semibold">Lead Time</span> = tempo total desde a criação até a conclusão (inclui esperas em backlog, filas, validação etc.).
+              <br />
+              <br />
+              <span className="font-semibold">Modo Linhas</span>:
+              <br />
+              - <span className="font-semibold">Percentis</span> (P50/P85/P95): mostra a distribuição. Ex: P85 = 85% das entregas saem em até X dias.
+              <br />
+              - <span className="font-semibold">Mín/Méd/Máx</span>: mostra mínimo, média e máximo em cada semana (bom para identificar outliers e variação).
+              <br />
+              <br />
+              <span className="font-semibold">Modo Dispersão</span>:
+              <br />
+              Mostra apenas a <span className="font-semibold">linha de tendência</span> (regressão linear) baseada na média semanal. Ao usar Dispersão, o seletor de percentis fica oculto.
+              <br />
+              <br />
+              O card lateral muda conforme o modo: em percentis ele funciona como um <span className="font-semibold">SLE</span> (tempo alvo para X% das entregas); nos demais modos ele mostra resumo (média/mín/máx) do período.
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-4 items-stretch">
             <div>
               {hasLeadDeliveries ? (
-                <ResponsiveContainer width="100%" height={220}>
-                  <LineChart data={leadByDeliveryWeekData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-                    <Tooltip content={customTooltip as any} />
-                    <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
-                    <Line type="monotone" dataKey="P50" stroke="var(--accent)" strokeWidth={2} dot={false} connectNulls />
-                    <Line type="monotone" dataKey="P85" stroke="var(--purple)" strokeWidth={2} dot={false} connectNulls />
-                    <Line type="monotone" dataKey="P95" stroke="var(--warn)" strokeWidth={2} dot={false} connectNulls />
-                  </LineChart>
-                </ResponsiveContainer>
+                leadViz === "scatter" ? (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={leadTrendData as any}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                      <Tooltip content={customTooltip as any} />
+                      <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
+                      <Line type="monotone" dataKey="Tendencia" name="Tendência" stroke="var(--accent)" strokeWidth={2.5} dot={false} connectNulls />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={leadByDeliveryWeekData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                      <Tooltip content={customTooltip as any} />
+                      <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
+                      {leadMode === "pct" ? (
+                        <>
+                          <Line type="monotone" dataKey="P50" stroke="var(--accent)" strokeWidth={2} dot={false} connectNulls />
+                          <Line type="monotone" dataKey="P85" stroke="var(--purple)" strokeWidth={2} dot={false} connectNulls />
+                          <Line type="monotone" dataKey="P95" stroke="var(--warn)" strokeWidth={2} dot={false} connectNulls />
+                        </>
+                      ) : (
+                        <>
+                          <Line type="monotone" dataKey="Min" name="Mínimo" stroke="var(--purple)" strokeWidth={2} dot={false} connectNulls />
+                          <Line type="monotone" dataKey="Media" name="Média" stroke="var(--accent)" strokeWidth={2} dot={false} connectNulls />
+                          <Line type="monotone" dataKey="Max" name="Máximo" stroke="var(--warn)" strokeWidth={2} dot={false} connectNulls />
+                        </>
+                      )}
+                    </LineChart>
+                  </ResponsiveContainer>
+                )
               ) : (
                 <EmptyChart title="Lead Time" />
               )}
             </div>
-            <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col">
-              <div className="text-[11px] text-[var(--text3)] mb-2">Percentil</div>
-              <div className="text-3xl font-bold font-mono leading-none">
-                {leadPctDays != null ? `${Math.round(leadPctDays)}d` : "—"}
-              </div>
-              <div className="text-[11px] text-[var(--text2)] mt-2 leading-snug">
-                {leadPct}% das demandas são entregues em {leadPctDays != null ? `${Math.round(leadPctDays)} dias` : "—"}
-              </div>
-              <div className="mt-auto pt-3">
-                <input
-                  type="range"
-                  min={50}
-                  max={99}
-                  step={1}
-                  value={leadPct}
-                  onChange={(e) => setLeadPct(parseInt(e.target.value))}
-                  className="w-full"
-                  disabled={!hasLeadDeliveries}
-                />
-                <div className="flex justify-between text-[10px] text-[var(--text3)] mt-1">
-                  <span>50%</span>
-                  <span>99%</span>
+            {leadViz === "lines" && leadMode === "pct" ? (
+              <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col">
+                <div className="text-[11px] text-[var(--text3)] mb-2">Percentil</div>
+                <div className="text-3xl font-bold font-mono leading-none">
+                  {leadPctDays != null ? `${Math.round(leadPctDays)}d` : "—"}
+                </div>
+                <div className="text-[11px] text-[var(--text2)] mt-2 leading-snug">
+                  {leadPct}% das demandas são entregues em {leadPctDays != null ? `${Math.round(leadPctDays)} dias` : "—"}
+                </div>
+                <div className="mt-auto pt-3">
+                  <input
+                    type="range"
+                    min={50}
+                    max={99}
+                    step={1}
+                    value={leadPct}
+                    onChange={(e) => setLeadPct(parseInt(e.target.value))}
+                    className="w-full"
+                    disabled={!hasLeadDeliveries}
+                  />
+                  <div className="flex justify-between text-[10px] text-[var(--text3)] mt-1">
+                    <span>50%</span>
+                    <span>99%</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col">
+                <div className="text-[11px] text-[var(--text3)] mb-2">Resumo do período</div>
+                <div className="text-[12px] text-[var(--text2)]">Média</div>
+                <div className="text-2xl font-bold font-mono leading-none">
+                  {leadSummary.avg != null ? `${leadSummary.avg.toFixed(1)}d` : "—"}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-[11px] text-[var(--text3)]">Mínimo</div>
+                    <div className="text-[13px] font-mono font-semibold">{leadSummary.min != null ? `${Math.round(leadSummary.min)}d` : "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-[var(--text3)]">Máximo</div>
+                    <div className="text-[13px] font-mono font-semibold">{leadSummary.max != null ? `${Math.round(leadSummary.max)}d` : "—"}</div>
+                  </div>
+                </div>
+                <div className="mt-auto pt-3 text-[10px] text-[var(--text3)] font-mono">
+                  Entregas consideradas: {leadTimeValues.length}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5">
           <div className="flex items-start justify-between gap-3 mb-4">
-            <div className="text-sm font-semibold">Cycle Time por semana de entrega (p50/p85/p95)</div>
-            <HelpButton
-              isOpen={Boolean(helpOpen.cycle)}
-              onClick={() => setHelpOpen((v) => ({ ...v, cycle: !v.cycle }))}
-            />
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">Cycle Time por semana de entrega</div>
+              <div className="text-[10px] text-[var(--text3)] mt-1">Dias · por semana (fechamento)</div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setCycleViz("lines")}
+                className={`px-2.5 py-1 rounded text-[11px] transition-all ${cycleViz === "lines" ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}
+              >
+                Linhas
+              </button>
+              <button
+                onClick={() => setCycleViz("scatter")}
+                className={`px-2.5 py-1 rounded text-[11px] transition-all ${cycleViz === "scatter" ? "bg-[rgba(14,165,233,.1)] border border-[var(--accent)] text-[var(--accent)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]"}`}
+              >
+                Dispersão
+              </button>
+              {cycleViz === "lines" && (
+                <>
+                  <button
+                    onClick={() => setCycleMode("pct")}
+                    className={`px-2.5 py-1 rounded text-[11px] transition-all ${cycleMode === "pct" ? "bg-[rgba(139,92,246,.12)] border border-[var(--purple)] text-[var(--purple)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--purple)] hover:text-[var(--purple)]"}`}
+                  >
+                    Percentis
+                  </button>
+                  <button
+                    onClick={() => setCycleMode("summary")}
+                    className={`px-2.5 py-1 rounded text-[11px] transition-all ${cycleMode === "summary" ? "bg-[rgba(139,92,246,.12)] border border-[var(--purple)] text-[var(--purple)]" : "bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:border-[var(--purple)] hover:text-[var(--purple)]"}`}
+                  >
+                    Mín/Méd/Máx
+                  </button>
+                </>
+              )}
+              <HelpButton
+                isOpen={Boolean(helpOpen.cycle)}
+                onClick={() => setHelpOpen((v) => ({ ...v, cycle: !v.cycle }))}
+              />
+            </div>
           </div>
           {helpOpen.cycle && (
             <div className="text-[12px] text-[var(--text2)] mb-4 leading-relaxed">
-              Agrupa as demandas pela semana em que foram entregues (data de fechamento) e mostra a distribuição do Cycle Time.
-              As linhas p50/p85/p95 indicam em quantos dias a maior parte das demandas é entregue. O card ao lado permite ajustar o percentil e ler o SLE do período selecionado.
+              Este gráfico agrupa as demandas pela semana em que foram entregues (data de fechamento) e mostra o Cycle Time em dias.
+              <br />
+              <br />
+              <span className="font-semibold">Cycle Time</span> = tempo em que a demanda ficou em execução (do primeiro status de trabalho ativo até a conclusão). Em geral, exclui a espera inicial em backlog.
+              <br />
+              <br />
+              <span className="font-semibold">Modo Linhas</span>:
+              <br />
+              - <span className="font-semibold">Percentis</span> (P50/P85/P95): mostra a distribuição. Ex: P85 = 85% das entregas saem em até X dias.
+              <br />
+              - <span className="font-semibold">Mín/Méd/Máx</span>: mostra mínimo, média e máximo em cada semana.
+              <br />
+              <br />
+              <span className="font-semibold">Modo Dispersão</span>:
+              <br />
+              Mostra apenas a <span className="font-semibold">linha de tendência</span> (regressão linear) baseada na média semanal; nesse modo, o seletor de percentis fica oculto.
+              <br />
+              <br />
+              O card lateral muda conforme o modo: em percentis ele funciona como um <span className="font-semibold">SLE</span>; nos demais modos ele mostra resumo (média/mín/máx) do período.
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-4 items-stretch">
             <div>
               {hasCycleDeliveries ? (
-                <ResponsiveContainer width="100%" height={220}>
-                  <LineChart data={cycleByDeliveryWeekData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
-                    <Tooltip content={customTooltip as any} />
-                    <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
-                    <Line type="monotone" dataKey="P50" stroke="var(--accent)" strokeWidth={2} dot={false} connectNulls />
-                    <Line type="monotone" dataKey="P85" stroke="var(--purple)" strokeWidth={2} dot={false} connectNulls />
-                    <Line type="monotone" dataKey="P95" stroke="var(--warn)" strokeWidth={2} dot={false} connectNulls />
-                  </LineChart>
-                </ResponsiveContainer>
+                cycleViz === "scatter" ? (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={cycleTrendData as any}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                      <Tooltip content={customTooltip as any} />
+                      <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
+                      <Line type="monotone" dataKey="Tendencia" name="Tendência" stroke="var(--accent)" strokeWidth={2.5} dot={false} connectNulls />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={cycleByDeliveryWeekData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: "var(--text3)" }} axisLine={false} tickLine={false} />
+                      <Tooltip content={customTooltip as any} />
+                      <Legend wrapperStyle={{ fontSize: 11, color: "var(--text2)" }} />
+                      {cycleMode === "pct" ? (
+                        <>
+                          <Line type="monotone" dataKey="P50" stroke="var(--accent)" strokeWidth={2} dot={false} connectNulls />
+                          <Line type="monotone" dataKey="P85" stroke="var(--purple)" strokeWidth={2} dot={false} connectNulls />
+                          <Line type="monotone" dataKey="P95" stroke="var(--warn)" strokeWidth={2} dot={false} connectNulls />
+                        </>
+                      ) : (
+                        <>
+                          <Line type="monotone" dataKey="Min" name="Mínimo" stroke="var(--purple)" strokeWidth={2} dot={false} connectNulls />
+                          <Line type="monotone" dataKey="Media" name="Média" stroke="var(--accent)" strokeWidth={2} dot={false} connectNulls />
+                          <Line type="monotone" dataKey="Max" name="Máximo" stroke="var(--warn)" strokeWidth={2} dot={false} connectNulls />
+                        </>
+                      )}
+                    </LineChart>
+                  </ResponsiveContainer>
+                )
               ) : (
                 <EmptyChart title="Cycle Time" />
               )}
             </div>
-            <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col">
-              <div className="text-[11px] text-[var(--text3)] mb-2">Percentil</div>
-              <div className="text-3xl font-bold font-mono leading-none">
-                {cyclePctDays != null ? `${Math.round(cyclePctDays)}d` : "—"}
-              </div>
-              <div className="text-[11px] text-[var(--text2)] mt-2 leading-snug">
-                {cyclePct}% das demandas são entregues em {cyclePctDays != null ? `${Math.round(cyclePctDays)} dias` : "—"}
-              </div>
-              <div className="mt-auto pt-3">
-                <input
-                  type="range"
-                  min={50}
-                  max={99}
-                  step={1}
-                  value={cyclePct}
-                  onChange={(e) => setCyclePct(parseInt(e.target.value))}
-                  className="w-full"
-                  disabled={!hasCycleDeliveries}
-                />
-                <div className="flex justify-between text-[10px] text-[var(--text3)] mt-1">
-                  <span>50%</span>
-                  <span>99%</span>
+            {cycleViz === "lines" && cycleMode === "pct" ? (
+              <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col">
+                <div className="text-[11px] text-[var(--text3)] mb-2">Percentil</div>
+                <div className="text-3xl font-bold font-mono leading-none">
+                  {cyclePctDays != null ? `${Math.round(cyclePctDays)}d` : "—"}
+                </div>
+                <div className="text-[11px] text-[var(--text2)] mt-2 leading-snug">
+                  {cyclePct}% das demandas são entregues em {cyclePctDays != null ? `${Math.round(cyclePctDays)} dias` : "—"}
+                </div>
+                <div className="mt-auto pt-3">
+                  <input
+                    type="range"
+                    min={50}
+                    max={99}
+                    step={1}
+                    value={cyclePct}
+                    onChange={(e) => setCyclePct(parseInt(e.target.value))}
+                    className="w-full"
+                    disabled={!hasCycleDeliveries}
+                  />
+                  <div className="flex justify-between text-[10px] text-[var(--text3)] mt-1">
+                    <span>50%</span>
+                    <span>99%</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col">
+                <div className="text-[11px] text-[var(--text3)] mb-2">Resumo do período</div>
+                <div className="text-[12px] text-[var(--text2)]">Média</div>
+                <div className="text-2xl font-bold font-mono leading-none">
+                  {cycleSummary.avg != null ? `${cycleSummary.avg.toFixed(1)}d` : "—"}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-[11px] text-[var(--text3)]">Mínimo</div>
+                    <div className="text-[13px] font-mono font-semibold">{cycleSummary.min != null ? `${Math.round(cycleSummary.min)}d` : "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-[var(--text3)]">Máximo</div>
+                    <div className="text-[13px] font-mono font-semibold">{cycleSummary.max != null ? `${Math.round(cycleSummary.max)}d` : "—"}</div>
+                  </div>
+                </div>
+                <div className="mt-auto pt-3 text-[10px] text-[var(--text3)] font-mono">
+                  Entregas consideradas: {cycleTimeValues.length}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

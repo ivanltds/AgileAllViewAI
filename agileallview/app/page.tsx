@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DemoSection } from "@/components/landing/DemoSection";
 
 export default function Home() {
   return (
@@ -10,6 +11,18 @@ export default function Home() {
             <div className="font-display font-bold text-[15px]">AgileAllView</div>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href="/docs"
+              className="bg-[var(--bg3)] border border-[var(--border)] text-[var(--text)] rounded-lg px-3.5 py-2 text-sm font-semibold hover:border-[var(--border2)] transition-all"
+            >
+              Documentação
+            </Link>
+            <a
+              href="/api/docs/pdf"
+              className="bg-[var(--bg3)] border border-[var(--border)] text-[var(--text)] rounded-lg px-3.5 py-2 text-sm font-semibold hover:border-[var(--border2)] transition-all"
+            >
+              Baixar PDF
+            </a>
             <Link
               href="/dashboard"
               className="bg-[var(--accent)] hover:bg-sky-400 text-white rounded-lg px-4 py-2 text-sm font-semibold transition-all hover:-translate-y-px"
@@ -35,8 +48,8 @@ export default function Home() {
             </h1>
 
             <p className="mt-4 text-[15px] text-[var(--text2)] max-w-[820px] leading-relaxed">
-              O AgileAllView consolida dados do Azure DevOps e entrega uma visão objetiva de fluxo, sprints, backlog e qualidade.
-              Ideal para líderes e times que precisam tomar decisões rápidas com base em dados.
+              O AgileAllView transforma Azure DevOps Boards em uma leitura executiva e operacional: previsibilidade de sprint, tendência de Lead/Cycle,
+              backlog com sinais de risco e painéis de qualidade. Feito para líderes que precisam decidir rápido — e para times que precisam de foco.
             </p>
 
             <div className="mt-7 flex flex-col sm:flex-row gap-3 items-start">
@@ -57,8 +70,8 @@ export default function Home() {
             <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-4">
               {[
                 { title: "1 visão, vários times", desc: "Compare squads e encontre gargalos sem trocar de projeto/board." },
-                { title: "Decisões com dados", desc: "KPIs de entrega, fluxo e qualidade para orientar prioridades." },
-                { title: "Foco no que importa", desc: "Backlog e sprints com sinal claro de risco, carry-over e extras." },
+                { title: "Decisões com dados", desc: "Percentis, tendência e indicadores de variação para orientar o que atacar primeiro." },
+                { title: "Foco no que importa", desc: "Backlog e sprints com sinais de risco, carry-over e extras (mudança de escopo)." },
               ].map((c) => (
                 <div key={c.title} className="relative bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-5 overflow-hidden">
                   <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[var(--accent)] to-[var(--purple)] opacity-80" />
@@ -67,14 +80,33 @@ export default function Home() {
                 </div>
               ))}
             </div>
+
+            <div className="mt-8 flex flex-col sm:flex-row gap-3 items-start">
+              <a
+                href="#demo"
+                className="bg-[rgba(14,165,233,.1)] border border-[rgba(14,165,233,.3)] text-[var(--accent)] rounded-lg px-5 py-3 text-sm font-semibold hover:border-[var(--accent)] transition-all"
+              >
+                Ver demo com dados fake
+              </a>
+              <a
+                href="/docs"
+                className="bg-[var(--bg3)] border border-[var(--border)] text-[var(--text)] rounded-lg px-5 py-3 text-sm font-semibold hover:border-[var(--border2)] transition-all"
+              >
+                Ler documentação
+              </a>
+            </div>
           </div>
         </section>
+
+        <div id="demo">
+          <DemoSection />
+        </div>
 
         <section id="features" className="max-w-[1200px] mx-auto px-6 py-14">
           <div className="flex items-end justify-between gap-6 flex-wrap mb-7">
             <div>
               <div className="text-[11px] text-[var(--text3)] font-mono uppercase tracking-wider">O que a ferramenta oferece</div>
-              <h2 className="text-2xl font-display font-bold mt-2">Tudo o que você precisa para ler a operação ágil em minutos</h2>
+              <h2 className="text-2xl font-display font-bold mt-2">Uma leitura clara do seu delivery — sem abrir múltiplas telas</h2>
             </div>
             <Link
               href="/dashboard"
@@ -112,7 +144,7 @@ export default function Home() {
           <div className="bg-gradient-to-br from-[rgba(14,165,233,.10)] to-[rgba(139,92,246,.10)] border border-[rgba(14,165,233,.25)] rounded-2xl p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div>
               <div className="text-[11px] text-[var(--text3)] font-mono uppercase tracking-wider">Comece em 2 minutos</div>
-              <div className="text-xl font-display font-bold mt-2">Conecte seu PAT e tenha uma leitura clara do seu fluxo</div>
+              <div className="text-xl font-display font-bold mt-2">Conecte seu Azure DevOps e comece a enxergar previsibilidade</div>
               <div className="text-[12px] text-[var(--text2)] mt-2 max-w-[780px] leading-relaxed">
                 O token é utilizado apenas durante a sessão e serve para consultar o Azure DevOps. Você cadastra seus times e sincroniza quando precisar.
               </div>
@@ -123,6 +155,12 @@ export default function Home() {
                 className="bg-[var(--accent)] hover:bg-sky-400 text-white rounded-lg px-5 py-3 text-sm font-semibold transition-all hover:-translate-y-px"
               >
                 Login
+              </Link>
+              <Link
+                href="/docs"
+                className="bg-[var(--bg3)] border border-[var(--border)] text-[var(--text)] rounded-lg px-5 py-3 text-sm font-semibold hover:border-[var(--border2)] transition-all"
+              >
+                Documentação
               </Link>
             </div>
           </div>

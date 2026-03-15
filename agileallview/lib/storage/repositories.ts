@@ -4,7 +4,7 @@
  * (better-sqlite3 is sync-first by design).
  */
 import { getDb } from "./db";
-import type { Team, Iteration, WorkItem, Revision, Metric, CapacityRow, Member, Task, SyncState } from "../types";
+import type { Team, Iteration, WorkItem, Revision, Metric, CapacityRow, CapacityOverrideRow, FutureCollaboratorRow, Member, Task, SyncState } from "../types";
 
 // ─── Teams ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +26,56 @@ export const teamsRepo = {
   },
   delete(id: string) {
     getDb().prepare("DELETE FROM teams WHERE id = ?").run(id);
+  },
+};
+
+// ─── Capacity Overrides ──────────────────────────────────────────────────────
+
+export const capacityOverridesRepo = {
+  byIteration(teamId: string, iterationId: string): CapacityOverrideRow[] {
+    return getDb().prepare(
+      "SELECT * FROM capacity_overrides WHERE team_id = ? AND iteration_id = ?"
+    ).all(teamId, iterationId) as CapacityOverrideRow[];
+  },
+  upsert(row: CapacityOverrideRow) {
+    getDb().prepare(`
+      INSERT INTO capacity_overrides (team_id, iteration_id, member_id, override_hours_per_day, stacks, is_dirty, updated_at)
+      VALUES (@team_id, @iteration_id, @member_id, @override_hours_per_day, @stacks, @is_dirty, datetime('now'))
+      ON CONFLICT(team_id, iteration_id, member_id) DO UPDATE SET
+        override_hours_per_day=excluded.override_hours_per_day,
+        stacks=excluded.stacks,
+        is_dirty=excluded.is_dirty,
+        updated_at=datetime('now')
+    `).run(row as any);
+  },
+  delete(teamId: string, iterationId: string, memberId: string) {
+    getDb().prepare(
+      "DELETE FROM capacity_overrides WHERE team_id = ? AND iteration_id = ? AND member_id = ?"
+    ).run(teamId, iterationId, memberId);
+  },
+};
+
+// ─── Future Collaborators ────────────────────────────────────────────────────
+
+export const futureCollaboratorsRepo = {
+  byIteration(teamId: string, iterationId: string): FutureCollaboratorRow[] {
+    return getDb().prepare(
+      "SELECT * FROM future_collaborators WHERE team_id = ? AND iteration_id = ? ORDER BY created_at ASC"
+    ).all(teamId, iterationId) as FutureCollaboratorRow[];
+  },
+  upsert(row: FutureCollaboratorRow) {
+    getDb().prepare(`
+      INSERT INTO future_collaborators (id, team_id, iteration_id, name, hours_per_day, stacks, created_at, updated_at)
+      VALUES (@id, @team_id, @iteration_id, @name, @hours_per_day, @stacks, datetime('now'), datetime('now'))
+      ON CONFLICT(id) DO UPDATE SET
+        name=excluded.name,
+        hours_per_day=excluded.hours_per_day,
+        stacks=excluded.stacks,
+        updated_at=datetime('now')
+    `).run(row as any);
+  },
+  delete(id: string) {
+    getDb().prepare("DELETE FROM future_collaborators WHERE id = ?").run(id);
   },
 };
 

@@ -415,6 +415,9 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
     .map(([week, values]) => ({
       week,
       count: values.length,
+      avg: values.length ? values.reduce((s, v) => s + v, 0) / values.length : null,
+      min: values.length ? Math.min(...values) : null,
+      max: values.length ? Math.max(...values) : null,
       p50: pct(values, 50),
       p85: pct(values, 85),
       p95: pct(values, 95),
@@ -440,6 +443,9 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
     .map(([week, values]) => ({
       week,
       count: values.length,
+      avg: values.length ? values.reduce((s, v) => s + v, 0) / values.length : null,
+      min: values.length ? Math.min(...values) : null,
+      max: values.length ? Math.max(...values) : null,
       p50: pct(values, 50),
       p85: pct(values, 85),
       p95: pct(values, 95),

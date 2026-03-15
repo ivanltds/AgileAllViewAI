@@ -98,6 +98,36 @@ export interface CapacityRow {
   real_capacity: number;
 }
 
+export type StackTag =
+  | "Backend"
+  | "Frontend"
+  | "Data Scientist"
+  | "QA"
+  | "Infra / Dev Ops"
+  | "Design (UX/UI)";
+
+export interface CapacityOverrideRow {
+  id?: number;
+  team_id: string;
+  iteration_id: string;
+  member_id: string;
+  override_hours_per_day: number | null;
+  stacks: string | null; // JSON string: StackTag[]
+  is_dirty: number;
+  updated_at?: string;
+}
+
+export interface FutureCollaboratorRow {
+  id: string;
+  team_id: string;
+  iteration_id: string;
+  name: string;
+  hours_per_day: number;
+  stacks: string | null; // JSON string: StackTag[]
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface Member {
   id: string;
   team_id: string;
@@ -195,6 +225,7 @@ export interface MemberCapacity {
   realCapacity: number;
   workingDays: number;
   dayOffCount: number;
+  availableDays?: number;
 }
 
 export interface IndividualCapacity {

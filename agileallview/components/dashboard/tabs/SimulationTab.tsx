@@ -9,17 +9,59 @@ const ACT_COLORS: Record<string,string> = {
 const TEAM_ACCENTS = ["#f59e0b","#ec4899","#10b981","#8b5cf6","#f97316"];
 
 type IC = { name:string; avgWeekly:number; currentWeek?:number; activity?:string };
+type MemberCap = {
+  memberName: string;
+  activities: { name: string; capacityPerDay: number }[];
+  workingDays?: number;
+  dayOffCount?: number;
+  availableDays?: number;
+};
+
+function toWeeklyByActivity(cap: MemberCap): IC[] {
+  const workingDays = cap.workingDays ?? 0;
+  const availableDays = cap.availableDays ?? Math.max(0, workingDays - (cap.dayOffCount ?? 0));
+  const weeks = Math.max(1, workingDays > 0 ? workingDays / 5 : 2);
+
+  const acts = (cap.activities ?? []).filter((a) => (a.capacityPerDay ?? 0) > 0);
+  if (!acts.length) return [{ name: cap.memberName, activity: "—", avgWeekly: 0 }];
+
+  const activityName = acts[0]?.name ?? "—";
+  const capPerDay = acts.reduce((s, a) => s + (a.capacityPerDay ?? 0), 0);
+  return [{ name: cap.memberName, activity: activityName, avgWeekly: capPerDay * availableDays / weeks }];
+}
 
 export function SimulationTab({ data, allTeams, teamId }: {
   data: Record<string,unknown>|null;
   allTeams: TeamDto[];
   teamId: string;
 }) {
+  const currentMemberCaps = (data?.memberCapacities as MemberCap[]) ?? [];
   const currentIndCap = (data?.individualCapacity as IC[]) ?? [];
   const otherTeams    = allTeams.filter((t) => t.id !== teamId);
 
+  const [otherCaps, setOtherCaps] = useState<Record<string, IC[]>>({});
+  const [loadingCaps, setLoadingCaps] = useState<Record<string, boolean>>({});
+  const [future, setFuture] = useState<{ id: string; name: string; activity: string; hoursPerDay: number }[]>([]);
+  const [futureSeq, setFutureSeq] = useState(1);
+
   // Build member pools
-  const currentPool = currentIndCap.map((m) => ({ ...m, teamId, teamName: allTeams.find((t) => t.id === teamId)?.name ?? "—", key: `${teamId}::${m.name}` }));
+  const currentFromSprintCap = currentMemberCaps.flatMap((c) => toWeeklyByActivity(c));
+  const currentBase = currentFromSprintCap.length ? currentFromSprintCap : currentIndCap;
+  const currentPool = currentBase.map((m) => ({
+    ...m,
+    teamId,
+    teamName: allTeams.find((t) => t.id === teamId)?.name ?? "—",
+    key: `${teamId}::${m.name}::${m.activity ?? "—"}`,
+  }));
+
+  const futurePool = future.map((f) => ({
+    name: f.name,
+    activity: f.activity,
+    avgWeekly: (f.hoursPerDay ?? 0) * 5,
+    teamId: "future",
+    teamName: "Futuro",
+    key: `future::${f.id}`,
+  }));
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set(currentPool.map((m) => m.key)));
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -31,17 +73,42 @@ export function SimulationTab({ data, allTeams, teamId }: {
     const allIn = keys.every((k) => selected.has(k));
     setSelected((s) => { const n = new Set(s); keys.forEach((k) => allIn ? n.delete(k) : n.add(k)); return n; });
   };
-  const toggleExp = (id: string) => setExpanded((e) => { const n = new Set(e); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleExp = (id: string) => {
+    setExpanded((e) => {
+      const n = new Set(e);
+      const willOpen = !n.has(id);
+      willOpen ? n.add(id) : n.delete(id);
+      return n;
+    });
 
-  // Other teams use placeholder data until synced
+    if (otherCaps[id] || loadingCaps[id]) return;
+    setLoadingCaps((v) => ({ ...v, [id]: true }));
+    fetch(`/api/metrics/${id}`)
+      .then((r) => r.json())
+      .then((json) => {
+        const memberCaps = (json?.memberCapacities as MemberCap[]) ?? [];
+        const fromSprintCap = memberCaps.flatMap((c) => toWeeklyByActivity(c));
+        const ind = (json?.individualCapacity as IC[]) ?? [];
+        const rows = fromSprintCap.length ? fromSprintCap : ind;
+        setOtherCaps((v) => ({ ...v, [id]: rows }));
+      })
+      .catch(() => {
+        setOtherCaps((v) => ({ ...v, [id]: [] }));
+      })
+      .finally(() => {
+        setLoadingCaps((v) => ({ ...v, [id]: false }));
+      });
+  };
+
+  // Other teams are loaded lazily from /api/metrics/{teamId}
   const otherPools = otherTeams.map((t, ti) => ({
     team: t, accent: TEAM_ACCENTS[ti % TEAM_ACCENTS.length],
-    members: (((t as unknown as { indCap?: IC[] }).indCap) ?? []).map((m) => ({
-      ...m, teamId: t.id, teamName: t.name, key: `${t.id}::${m.name}`,
+    members: ((otherCaps[t.id] ?? [])).map((m) => ({
+      ...m, teamId: t.id, teamName: t.name, key: `${t.id}::${m.name}::${m.activity ?? "—"}`,
     })),
   }));
 
-  const allPool = [...currentPool, ...otherPools.flatMap((p) => p.members)];
+  const allPool = [...currentPool, ...otherPools.flatMap((p) => p.members), ...futurePool];
   const selMembers = allPool.filter((m) => selected.has(m.key));
   const weekly  = selMembers.reduce((s, m) => s + (m.avgWeekly ?? 0), 0);
   const sprint  = weekly * 2;
@@ -58,6 +125,32 @@ export function SimulationTab({ data, allTeams, teamId }: {
       count: selMembers.length, weekly, sprint,
       teams: teamNames.join(", "), actBreak: { ...actBreak },
     }]);
+  };
+
+  const addFuture = () => {
+    const id = String(Date.now());
+    const label = futureSeq === 1 ? "Colaborador" : `Colaborador ${futureSeq}`;
+    setFutureSeq((n) => n + 1);
+    const entry = { id, name: label, activity: "Development", hoursPerDay: 7 };
+    setFuture((v) => [...v, entry]);
+    setSelected((s) => {
+      const n = new Set(s);
+      n.add(`future::${id}`);
+      return n;
+    });
+  };
+
+  const updateFuture = (id: string, patch: Partial<{ name: string; activity: string; hoursPerDay: number }>) => {
+    setFuture((v) => v.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+  };
+
+  const removeFuture = (id: string) => {
+    setFuture((v) => v.filter((f) => f.id !== id));
+    setSelected((s) => {
+      const n = new Set(s);
+      n.delete(`future::${id}`);
+      return n;
+    });
   };
 
   const MRow = ({ m, accent }: { m: { key:string; name:string; avgWeekly?:number; activity?:string }; accent: string }) => (
@@ -97,12 +190,52 @@ export function SimulationTab({ data, allTeams, teamId }: {
           }
         </div>
 
+        <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-4 mb-3">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-sm font-semibold">Futuro</div>
+            <button onClick={addFuture} className="text-xs text-[var(--text2)] hover:text-[var(--text)] bg-[var(--bg3)] border border-[var(--border)] rounded px-2.5 py-1 transition-all">
+              Adicionar
+            </button>
+          </div>
+          {futurePool.length === 0 ? (
+            <p className="text-xs text-[var(--text3)]">Adicione colaboradores para simular capacidade futura</p>
+          ) : (
+            <div className="space-y-2">
+              {future.map((f) => (
+                <div key={f.id} className="bg-[var(--bg3)] border border-[var(--border)] rounded-lg p-3">
+                  <div className="flex items-start gap-2">
+                    <input type="checkbox" checked={selected.has(`future::${f.id}`)} onChange={() => toggle(`future::${f.id}`)}
+                      className="w-3.5 h-3.5 cursor-pointer accent-[var(--accent)] mt-1" />
+                    <div className="flex-1 grid grid-cols-3 gap-2">
+                      <input value={f.name} onChange={(e) => updateFuture(f.id, { name: e.target.value })}
+                        className="col-span-1 bg-[var(--bg2)] border border-[var(--border)] rounded px-2 py-1 text-xs" />
+                      <input value={f.activity} onChange={(e) => updateFuture(f.id, { activity: e.target.value })}
+                        className="col-span-1 bg-[var(--bg2)] border border-[var(--border)] rounded px-2 py-1 text-xs" />
+                      <input type="number" min={0} step={0.5} value={f.hoursPerDay}
+                        onChange={(e) => updateFuture(f.id, { hoursPerDay: Number(e.target.value) })}
+                        className="col-span-1 bg-[var(--bg2)] border border-[var(--border)] rounded px-2 py-1 text-xs" />
+                    </div>
+                    <button onClick={() => removeFuture(f.id)} className="text-xs text-[var(--text3)] hover:text-[var(--text)] px-2">
+                      x
+                    </button>
+                  </div>
+                  <div className="mt-2 flex justify-between text-[10px] text-[var(--text3)]">
+                    <span>Stack</span>
+                    <span className="font-mono text-[var(--accent)]">{((f.hoursPerDay ?? 0) * 5).toFixed(1)}h/sem</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {otherTeams.length > 0 && (
           <>
             <div className="text-[10px] font-semibold text-[var(--text3)] uppercase tracking-wider mb-2 px-1">Adicionar de outros times</div>
             {otherPools.map(({ team: t, accent, members }) => {
               const selCount = members.filter((m) => selected.has(m.key)).length;
               const isOpen = expanded.has(t.id);
+              const isLoading = Boolean(loadingCaps[t.id]);
               return (
                 <div key={t.id} className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-4 mb-2" style={{ borderLeftWidth: 3, borderLeftColor: accent }}>
                   <div className="flex items-center gap-3 cursor-pointer" onClick={() => toggleExp(t.id)}>
@@ -122,10 +255,13 @@ export function SimulationTab({ data, allTeams, teamId }: {
                           {members.every((m) => selected.has(m.key)) ? "Desmarcar" : "Todos"}
                         </button>
                       </div>
-                      {members.length === 0
-                        ? <p className="text-xs text-[var(--text3)]">Sincronize este time para ver os membros</p>
-                        : members.map((m) => <MRow key={m.key} m={m} accent={accent} />)
-                      }
+                      {isLoading ? (
+                        <p className="text-xs text-[var(--text3)]">Carregando membros…</p>
+                      ) : members.length === 0 ? (
+                        <p className="text-xs text-[var(--text3)]">Sincronize este time para ver os membros</p>
+                      ) : (
+                        members.map((m) => <MRow key={m.key} m={m} accent={accent} />)
+                      )}
                     </div>
                   )}
                 </div>
