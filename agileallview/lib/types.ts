@@ -139,14 +139,40 @@ export interface Member {
 export interface Task {
   id: number;
   team_id: string;
-  assigned_to?: string;
-  state?: string;
-  remaining_work?: number;
-  completed_work?: number;
-  original_estimate?: number;
-  changed_date?: string;
-  iteration_name?: string;
-  week_key?: string;
+  assigned_to?: string | null;
+  state?: string | null;
+  remaining_work?: number | null;
+  completed_work?: number | null;
+  original_estimate?: number | null;
+  changed_date?: string | null;
+  iteration_name?: string | null;
+  week_key?: string | null;
+}
+
+export interface AssistantDocumentRow {
+  id: string;
+  team_id: string;
+  filename?: string | null;
+  content: string;
+  created_at?: string;
+}
+
+export interface AssistantChunkRow {
+  id: string;
+  team_id: string;
+  document_id: string;
+  chunk_index: number;
+  text: string;
+  embedding: string;
+  created_at?: string;
+}
+
+export interface AssistantMessageRow {
+  id: string;
+  team_id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  created_at?: string;
 }
 
 export interface SyncState {

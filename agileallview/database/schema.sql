@@ -187,3 +187,34 @@ CREATE TABLE IF NOT EXISTS sync_state (
   error_msg   TEXT,
   updated_at  TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS assistant_documents (
+  id          TEXT PRIMARY KEY,
+  team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  filename    TEXT,
+  content     TEXT NOT NULL,
+  created_at  TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_asst_doc_team ON assistant_documents(team_id);
+
+CREATE TABLE IF NOT EXISTS assistant_chunks (
+  id           TEXT PRIMARY KEY,
+  team_id      TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  document_id  TEXT NOT NULL REFERENCES assistant_documents(id) ON DELETE CASCADE,
+  chunk_index  INTEGER NOT NULL,
+  text         TEXT NOT NULL,
+  embedding    TEXT NOT NULL,
+  created_at   TEXT DEFAULT (datetime('now')),
+  UNIQUE(document_id, chunk_index)
+);
+CREATE INDEX IF NOT EXISTS idx_asst_chunk_team ON assistant_chunks(team_id);
+CREATE INDEX IF NOT EXISTS idx_asst_chunk_doc  ON assistant_chunks(document_id);
+
+CREATE TABLE IF NOT EXISTS assistant_messages (
+  id          TEXT PRIMARY KEY,
+  team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  role        TEXT NOT NULL,
+  content     TEXT NOT NULL,
+  created_at  TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_asst_msg_team ON assistant_messages(team_id, created_at);

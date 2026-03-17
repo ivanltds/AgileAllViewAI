@@ -6,6 +6,7 @@ import { BacklogTab }   from "./tabs/BacklogTab";
 import { SprintsTab }   from "./tabs/SprintsTab";
 import { CapacitySimulationTab } from "./tabs/CapacitySimulationTab";
 import { QualityTab } from "./tabs/QualityTab";
+import { AssistantWidget } from "@/components/dashboard/AssistantWidget";
 import type { TeamDto } from "@/lib/types";
 
 const TABS = [
@@ -163,6 +164,7 @@ export function Dashboard({
 
   return (
     <main className="flex-1 px-5 py-5 max-w-[1600px] mx-auto w-full">
+      <AssistantWidget teamId={team.id} />
       {/* Header */}
       <div className="flex items-start justify-between gap-4 mb-5 flex-wrap">
         <div>

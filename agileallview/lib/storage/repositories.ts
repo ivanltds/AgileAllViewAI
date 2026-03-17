@@ -4,7 +4,7 @@
  * (better-sqlite3 is sync-first by design).
  */
 import { getDb } from "./db";
-import type { Team, Iteration, WorkItem, Revision, Metric, CapacityRow, CapacityOverrideRow, FutureCollaboratorRow, Member, Task, SyncState } from "../types";
+import type { Team, Iteration, WorkItem, Revision, Metric, CapacityRow, CapacityOverrideRow, FutureCollaboratorRow, Member, Task, SyncState, AssistantDocumentRow, AssistantChunkRow, AssistantMessageRow } from "../types";
 
 // ─── Teams ────────────────────────────────────────────────────────────────────
 
@@ -384,5 +384,71 @@ export const syncStateRepo = {
         last_sync=excluded.last_sync, item_count=excluded.item_count,
         status=excluded.status, error_msg=excluded.error_msg, updated_at=datetime('now')
     `).run({ team_id: teamId, last_sync: null, item_count: 0, status: "idle", error_msg: null, ...data });
+  },
+};
+
+export const assistantDocumentsRepo = {
+  byTeam(teamId: string): AssistantDocumentRow[] {
+    return getDb().prepare(
+      "SELECT * FROM assistant_documents WHERE team_id = ? ORDER BY created_at DESC"
+    ).all(teamId) as AssistantDocumentRow[];
+  },
+  upsert(row: AssistantDocumentRow) {
+    getDb().prepare(`
+      INSERT INTO assistant_documents (id, team_id, filename, content, created_at)
+      VALUES (@id, @team_id, @filename, @content, datetime('now'))
+      ON CONFLICT(id) DO UPDATE SET
+        filename=excluded.filename,
+        content=excluded.content
+    `).run(row as any);
+  },
+  delete(id: string) {
+    getDb().prepare("DELETE FROM assistant_documents WHERE id = ?").run(id);
+  },
+};
+
+export const assistantChunksRepo = {
+  byTeam(teamId: string): AssistantChunkRow[] {
+    return getDb().prepare(
+      "SELECT * FROM assistant_chunks WHERE team_id = ? ORDER BY created_at DESC"
+    ).all(teamId) as AssistantChunkRow[];
+  },
+  byDoc(documentId: string): AssistantChunkRow[] {
+    return getDb().prepare(
+      "SELECT * FROM assistant_chunks WHERE document_id = ? ORDER BY chunk_index ASC"
+    ).all(documentId) as AssistantChunkRow[];
+  },
+  insertMany(rows: AssistantChunkRow[]) {
+    if (!rows.length) return;
+    const stmt = getDb().prepare(`
+      INSERT INTO assistant_chunks (id, team_id, document_id, chunk_index, text, embedding, created_at)
+      VALUES (@id, @team_id, @document_id, @chunk_index, @text, @embedding, datetime('now'))
+      ON CONFLICT(document_id, chunk_index) DO UPDATE SET
+        text=excluded.text,
+        embedding=excluded.embedding
+    `);
+    const insert = getDb().transaction((items: AssistantChunkRow[]) => {
+      for (const r of items) stmt.run(r as any);
+    });
+    insert(rows as any);
+  },
+  deleteByDoc(documentId: string) {
+    getDb().prepare("DELETE FROM assistant_chunks WHERE document_id = ?").run(documentId);
+  },
+};
+
+export const assistantMessagesRepo = {
+  lastByTeam(teamId: string, limit = 30): AssistantMessageRow[] {
+    return getDb().prepare(
+      "SELECT * FROM assistant_messages WHERE team_id = ? ORDER BY created_at DESC LIMIT ?"
+    ).all(teamId, limit) as AssistantMessageRow[];
+  },
+  insert(row: AssistantMessageRow) {
+    getDb().prepare(
+      "INSERT INTO assistant_messages (id, team_id, role, content, created_at) VALUES (@id, @team_id, @role, @content, datetime('now'))"
+    ).run(row as any);
+  },
+  deleteAllByTeam(teamId: string) {
+    getDb().prepare("DELETE FROM assistant_messages WHERE team_id = ?").run(teamId);
   },
 };
