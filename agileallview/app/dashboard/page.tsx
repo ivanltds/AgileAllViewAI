@@ -17,7 +17,7 @@ export default function DashboardPage() {
   const patRef = useRef<string | null>(null);
   const patsByOrgRef = useRef<Record<string, string>>({});
   const pendingOrgResolveRef = useRef<((ok: boolean) => void) | null>(null);
-  const [session, setSession] = useState<{ name: string; org: string } | null>(null);
+  const [session, setSession] = useState<{ org: string } | null>(null);
   const [activeOrg, setActiveOrg] = useState<string>("");
   const [expandedOrg, setExpandedOrg] = useState<string>("");
   const [orgPrompt, setOrgPrompt] = useState<{ org: string } | null>(null);
@@ -115,10 +115,10 @@ export default function DashboardPage() {
     if (session) loadTeams();
   }, [session, loadTeams]);
 
-  const handleLogin = (name: string, org: string, pat: string) => {
+  const handleLogin = (org: string, pat: string) => {
     patsByOrgRef.current[org] = pat;
     patRef.current = pat;
-    setSession({ name, org });
+    setSession({ org });
     setActiveOrg(org);
     setExpandedOrg(org);
   };

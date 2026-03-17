@@ -5,7 +5,7 @@ import type { TeamDto } from "@/lib/types";
 export function Topbar({ teams, currentTeam, session, onSelectTeam, onGoHome, onLogout }: {
   teams: TeamDto[];
   currentTeam: TeamDto | null;
-  session: { name: string };
+  session: { org: string };
   onSelectTeam: (t: TeamDto) => void;
   onGoHome: () => void;
   onLogout: () => void;
@@ -41,9 +41,9 @@ export function Topbar({ teams, currentTeam, session, onSelectTeam, onGoHome, on
       <div className="ml-auto flex items-center gap-3">
         <div className="flex items-center gap-2 text-xs text-[var(--text2)]">
           <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--purple)] flex items-center justify-center text-white text-[10px] font-bold">
-            {session.name.slice(0, 2).toUpperCase()}
+            {session.org.slice(0, 2).toUpperCase()}
           </div>
-          {session.name}
+          {session.org}
         </div>
         <button onClick={onLogout}
           className="border border-[var(--border)] rounded-md p-1.5 text-[var(--text2)] hover:text-[var(--danger)] hover:border-[rgba(239,68,68,.4)] hover:bg-[rgba(239,68,68,.06)] transition-all"

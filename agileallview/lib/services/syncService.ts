@@ -15,9 +15,9 @@
  */
 import { AzureConnector } from "../azure/connector";
 import {
-  iterationsRepo, workItemsRepo, revisionsRepo,
-  metricsRepo, capacityRepo, membersRepo, tasksRepo, syncStateRepo, workItemChildrenRepo,
-} from "../storage/repositories";
+  teamsRepo, iterationsRepo, workItemsRepo, revisionsRepo, metricsRepo,
+  capacityRepo, capacityOverridesRepo, membersRepo, tasksRepo, syncStateRepo, workItemChildrenRepo,
+} from "@/lib/storage/repositories";
 import { processRevisionsWithDates, calcCapacityWithDayOffs, weekKey } from "../analytics/engine";
 import type { Team, Revision, CapacityRow, Metric } from "../types";
 
@@ -114,12 +114,32 @@ export async function syncTeam(
     const rawMembers = await api.getMembers(team.org, team.project, team.team_name).catch(() => []);
     membersRepo.upsertBulk(rawMembers.map((m) => ({ id: m.id, team_id: team.id, display_name: m.displayName, unique_name: m.uniqueName })));
 
-    // ── 3. Capacity for last 6 sprints ────────────────────────────
+    // ── 3. Capacity for last 6 sprints (+ a few future) ───────────
     prog("capacity", "Buscando capacidade das sprints...", 15);
-    const recentSprints = iterations.filter((s) => s.time_frame !== "future").slice(-6);
+    const sortedIterations = [...iterations].sort((a, b) => {
+      const at = a.start_date ? new Date(a.start_date).getTime() : Number.POSITIVE_INFINITY;
+      const bt = b.start_date ? new Date(b.start_date).getTime() : Number.POSITIVE_INFINITY;
+      return at - bt;
+    });
+
+    const pastAndCurrent = sortedIterations.filter((s) => s.time_frame !== "future").slice(-6);
+    const future = sortedIterations.filter((s) => s.time_frame === "future").slice(0, 4);
+    const recentSprints = [...pastAndCurrent, ...future];
     for (const sprint of recentSprints) {
       const rawCap = await api.getCapacity(team.org, team.project, team.team_name, sprint.id);
-      if (!rawCap.length) continue;
+      if (!rawCap.length) {
+        if (sprint.time_frame === "current") {
+          console.warn("[sync] capacity empty for current sprint", {
+            teamId: team.id,
+            teamName: team.team_name,
+            org: team.org,
+            project: team.project,
+            sprintId: sprint.id,
+            sprintName: sprint.name,
+          });
+        }
+        continue;
+      }
 
       const withDayOffs = calcCapacityWithDayOffs(
         rawCap.map((c) => ({
@@ -147,6 +167,29 @@ export async function syncTeam(
         real_capacity: m.realCapacity,
       }));
       capacityRepo.upsertBulk(capRows);
+
+      // Reconcile overrides (best-effort): if Azure == manual, clear dirty flag
+      const overrides = capacityOverridesRepo.byIteration(team.id, sprint.id);
+      if (overrides.length) {
+        const azureDailyByMember = new Map<string, number>();
+        for (const c of rawCap) {
+          const memberId = c.teamMember?.id ?? "";
+          if (!memberId) continue;
+          const daily = (c.activities ?? []).reduce((s, a: any) => s + (a.capacityPerDay ?? 0), 0);
+          azureDailyByMember.set(memberId, daily);
+        }
+
+        for (const ov of overrides) {
+          const azureDaily = azureDailyByMember.get(ov.member_id);
+          if (azureDaily == null) continue;
+          const manual = ov.override_hours_per_day;
+          if (manual == null) continue;
+          const equal = Math.abs(manual - azureDaily) < 0.001;
+          if (equal && ov.is_dirty) {
+            capacityOverridesRepo.upsert({ ...ov, is_dirty: 0 });
+          }
+        }
+      }
     }
 
     // ── 4. WIQL — PBI IDs (incremental) ──────────────────────────

@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   teamsRepo, iterationsRepo, workItemsRepo, revisionsRepo,
   metricsRepo, capacityRepo, tasksRepo, workItemChildrenRepo,
+  capacityOverridesRepo, futureCollaboratorsRepo,
 } from "@/lib/storage/repositories";
 import {
   calcIndividualCapacity,
@@ -44,6 +45,7 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
   const dateFrom       = url.searchParams.get("from");
   const dateTo         = url.searchParams.get("to");
   const openBacklog    = url.searchParams.get("openBacklog") === "1";
+  const iterationIdParam = url.searchParams.get("iterationId");
 
   const team = teamsRepo.byId(teamId);
   if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
@@ -451,13 +453,28 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
       p95: pct(values, 95),
     }));
 
-  // Capacity — current sprint
-  const currentSprint = sprints.find((s) => s.time_frame === "current") ?? sprints[sprints.length - 1];
+  // Capacity — selected sprint (defaults to current)
+  const selectedSprint =
+    (iterationIdParam ? allSprints.find((s) => s.id === iterationIdParam) : null) ??
+    sprints.find((s) => s.time_frame === "current") ??
+    sprints[sprints.length - 1] ??
+    null;
+
+  const capacityOverrides = selectedSprint
+    ? capacityOverridesRepo.byIteration(teamId, selectedSprint.id)
+    : [];
+  const futureCollaborators = selectedSprint
+    ? futureCollaboratorsRepo.byIteration(teamId, selectedSprint.id)
+    : [];
+
+  const selectedSprintCapRows = selectedSprint
+    ? capacityRepo.byIteration(teamId, selectedSprint.id)
+    : [];
+
   let memberCapacities: ReturnType<typeof calcCapacityWithDayOffs> = [];
-  if (currentSprint) {
-    const capRows = capacityRepo.byIteration(teamId, currentSprint.id);
+  if (selectedSprint) {
     memberCapacities = calcCapacityWithDayOffs(
-      capRows.map((c) => ({
+      selectedSprintCapRows.map((c) => ({
         memberId:   c.member_id,
         memberName: c.member_name,
         activities: JSON.parse(c.activities || "[]"),
@@ -467,8 +484,8 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
         workingDays: 0,
         dayOffCount: 0,
       })),
-      currentSprint.start_date,
-      currentSprint.finish_date
+      selectedSprint.start_date,
+      selectedSprint.finish_date
     );
   }
 
@@ -536,8 +553,8 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
     .filter((n) => n && n !== "—")
     .sort((a, b) => a.localeCompare(b))
     .map((name) => {
-      const curCap = currentSprint ? (capacityBySprintAndPerson.get(`${currentSprint.id}::${name}`) ?? 0) : 0;
-      const curDelivered = currentSprint ? (deliveredHoursBySprintAndPerson.get(`${currentSprint.id}::${name}`) ?? 0) : 0;
+      const curCap = selectedSprint ? (capacityBySprintAndPerson.get(`${selectedSprint.id}::${name}`) ?? 0) : 0;
+      const curDelivered = selectedSprint ? (deliveredHoursBySprintAndPerson.get(`${selectedSprint.id}::${name}`) ?? 0) : 0;
 
       const deliveredArr: number[] = [];
       const devArr: number[] = [];
@@ -565,8 +582,8 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
     });
 
   // Individual capacity from tasks
-  const tasks = currentSprint?.name
-    ? allTasks.filter((t) => (t.iteration_name ?? "") === currentSprint.name)
+  const tasks = selectedSprint?.name
+    ? allTasks.filter((t) => (t.iteration_name ?? "") === selectedSprint.name)
     : allTasks;
   const openTasks = tasks.filter((t) => {
     const st = (t.state ?? "").trim();
@@ -585,10 +602,22 @@ export async function GET(req: NextRequest, { params }: { params: { teamId: stri
     cycleTimeValues,
     leadTimeByDeliveryWeek,
     cycleTimeByDeliveryWeek,
-    currentSprint: currentSprint ?? null,
+    currentSprint: selectedSprint ?? null,
     memberCapacities,
     capacitySummary: capSummary,
     individualCapacity,
+    capacityOverrides,
+    futureCollaborators,
+    _debug: {
+      iterationIdParam: iterationIdParam ?? null,
+      selectedSprintId: selectedSprint?.id ?? null,
+      selectedSprintName: selectedSprint?.name ?? null,
+      selectedSprintTimeFrame: (selectedSprint as any)?.time_frame ?? null,
+      capacityRowCount: selectedSprintCapRows.length,
+      memberCapacitiesCount: memberCapacities.length,
+      capacityOverridesCount: capacityOverrides.length,
+      futureCollaboratorsCount: futureCollaborators.length,
+    },
     quality,
   });
 }

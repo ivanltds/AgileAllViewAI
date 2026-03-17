@@ -10,6 +10,7 @@ import type {
 } from "../types";
 
 const API_VERSION = "7.0";
+const WORK_API_VERSION = "7.1-preview.1";
 const BATCH_SIZE = 200;
 
 export class AzureConnector {
@@ -78,7 +79,7 @@ export class AzureConnector {
   // ─── 4. Iterations (sprints) ───────────────────────────────────
   async getIterations(org: string, project: string, team: string): Promise<AzureIteration[]> {
     const data = await this.request<{ value: AzureIteration[] }>(
-      `https://dev.azure.com/${enc(org)}/${enc(project)}/${enc(team)}/_apis/work/teamsettings/iterations?api-version=${API_VERSION}`
+      `https://dev.azure.com/${enc(org)}/${enc(project)}/${enc(team)}/_apis/work/teamsettings/iterations?api-version=${WORK_API_VERSION}`
     );
     return data.value ?? [];
   }
@@ -87,10 +88,17 @@ export class AzureConnector {
   async getCapacity(org: string, project: string, team: string, iterationId: string): Promise<AzureCapacityMember[]> {
     try {
       const data = await this.request<{ value: AzureCapacityMember[] }>(
-        `https://dev.azure.com/${enc(org)}/${enc(project)}/${enc(team)}/_apis/work/teamsettings/iterations/${iterationId}/capacities?api-version=${API_VERSION}`
+        `https://dev.azure.com/${enc(org)}/${enc(project)}/${enc(team)}/_apis/work/teamsettings/iterations/${iterationId}/capacities?api-version=${WORK_API_VERSION}`
       );
       return data.value ?? [];
-    } catch {
+    } catch (err) {
+      console.warn("[azure] getCapacity failed", {
+        org,
+        project,
+        team,
+        iterationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return []; // capacity not always available (future sprints)
     }
   }

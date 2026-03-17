@@ -2,15 +2,14 @@
 import { useState } from "react";
 import { Spinner } from "@/components/ui/Spinner";
 
-export function SessionScreen({ onLogin }: { onLogin: (name: string, org: string, pat: string) => void }) {
-  const [name,  setName]  = useState("");
+export function SessionScreen({ onLogin }: { onLogin: (org: string, pat: string) => void }) {
   const [pat,   setPat]   = useState("");
   const [org,   setOrg]   = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const handleLogin = async () => {
-    if (!name.trim() || !org.trim() || !pat.trim()) return;
+    if (!org.trim() || !pat.trim()) return;
     setLoading(true); setError("");
 
     const res = await fetch("/api/validate", {
@@ -26,7 +25,7 @@ export function SessionScreen({ onLogin }: { onLogin: (name: string, org: string
     }
 
     setLoading(false);
-    onLogin(name.trim(), org.trim(), pat.trim());
+    onLogin(org.trim(), pat.trim());
   };
 
   return (
@@ -58,8 +57,7 @@ export function SessionScreen({ onLogin }: { onLogin: (name: string, org: string
             </div>
           )}
 
-          {[
-            { label: "Nome", value: name, onChange: setName, placeholder: "Seu nome", type: "text" },
+          {[ 
             { label: "Organização", value: org, onChange: setOrg, placeholder: "ex: MinhaEmpresa", type: "text" },
             { label: "Personal Access Token (PAT)", value: pat, onChange: setPat, placeholder: "••••••••••••••", type: "password" },
           ].map(({ label, value, onChange, placeholder, type }) => (
@@ -78,7 +76,7 @@ export function SessionScreen({ onLogin }: { onLogin: (name: string, org: string
 
           <button
             onClick={handleLogin}
-            disabled={!name.trim() || !org.trim() || !pat.trim() || loading}
+            disabled={!org.trim() || !pat.trim() || loading}
             className="w-full bg-[var(--accent)] hover:bg-sky-400 text-white font-semibold rounded-lg py-2.5 text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:-translate-y-px hover:shadow-[0_4px_16px_rgba(14,165,233,.3)] active:translate-y-0"
           >
             {loading ? <><Spinner size={14} />Validando...</> : "Iniciar sessão"}

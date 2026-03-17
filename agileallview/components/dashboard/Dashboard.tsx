@@ -4,8 +4,7 @@ import { SyncProgress } from "@/components/ui/SyncProgress";
 import { OverviewTab }  from "./tabs/OverviewTab";
 import { BacklogTab }   from "./tabs/BacklogTab";
 import { SprintsTab }   from "./tabs/SprintsTab";
-import { CapacityTab }  from "./tabs/CapacityTab";
-import { SimulationTab } from "./tabs/SimulationTab";
+import { CapacitySimulationTab } from "./tabs/CapacitySimulationTab";
 import { QualityTab } from "./tabs/QualityTab";
 import type { TeamDto } from "@/lib/types";
 
@@ -14,8 +13,7 @@ const TABS = [
   { id: "backlog",     label: "Backlog / PBIs" },
   { id: "sprints",     label: "Sprints" },
   { id: "quality",     label: "Qualidade" },
-  { id: "capacity",    label: "Capacidade" },
-  { id: "simulation",  label: "Simulação" },
+  { id: "capacity",    label: "Capacidade & Simulação" },
 ];
 
 const FILTER_PRESETS = [
@@ -67,7 +65,7 @@ export function Dashboard({
     !dateFrom &&
     !dateTo;
 
-  const showPeriodFilters = tab !== "capacity" && tab !== "simulation";
+  const showPeriodFilters = tab !== "capacity";
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -322,8 +320,7 @@ export function Dashboard({
           {tab === "backlog"    && <BacklogTab    data={data} openBacklog={noFiltersApplied} />}
           {tab === "sprints"    && <SprintsTab    data={data} />}
           {tab === "quality"    && <QualityTab    data={data} />}
-          {tab === "capacity"   && <CapacityTab   data={data} />}
-          {tab === "simulation" && <SimulationTab data={data} allTeams={allTeams} teamId={team.id} />}
+          {tab === "capacity"   && <CapacitySimulationTab data={data} allTeams={allTeams} teamId={team.id} />}
         </div>
       )}
     </main>
